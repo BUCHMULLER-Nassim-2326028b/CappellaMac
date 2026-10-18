@@ -64,33 +64,45 @@ struct DialogueTextEditor: NSViewRepresentable {
     }
     final class FocusedTextView: NSTextView {
         private var pendingFocus = true
+        private var awaitingSheetEnd = false
+        private var focusScheduled = false
         private var observers: [NSObjectProtocol] = []
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             observers.forEach { NotificationCenter.default.removeObserver($0) }; observers.removeAll()
             guard let window else { return }
-            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification] {
-                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    self?.requestInitialFocus()
-                })
-            }
+            pendingFocus = true
+            awaitingSheetEnd = window.attachedSheet != nil
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
+                self?.requestInitialFocus()
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                // Cocoa may have temporarily accepted this responder while the
+                // sheet was open, then restored the hosting view on dismissal.
+                if self.awaitingSheetEnd { self.pendingFocus = true; self.awaitingSheetEnd = false }
+                self.requestInitialFocus()
+            })
             requestInitialFocus()
         }
         func requestInitialFocus() {
-            guard pendingFocus else { return }
+            guard pendingFocus, !focusScheduled, let window else { return }
+            if window.attachedSheet != nil { awaitingSheetEnd = true; return }
+            focusScheduled = true
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.pendingFocus, let window = self.window, window.isKeyWindow,
-                      window.attachedSheet == nil, NSApp.modalWindow == nil,
-                      self.bounds.width > 0, self.bounds.height > 0 else { return }
-                if window.makeFirstResponder(self) { self.pendingFocus = false }
+                guard let self else { return }
+                self.focusScheduled = false
+                guard self.pendingFocus, let window = self.window else { return }
+                if window.attachedSheet != nil { self.awaitingSheetEnd = true; return }
+                guard NSApp.modalWindow == nil, self.bounds.width > 0, self.bounds.height > 0 else { return }
+                // A responder can be assigned before activation. Keep the
+                // request pending until the window actually receives the keys.
+                if window.makeFirstResponder(self), window.isKeyWindow {
+                    self.pendingFocus = false; self.awaitingSheetEnd = false
+                }
             }
         }
         override func layout() { super.layout(); requestInitialFocus() }
-        override func becomeFirstResponder() -> Bool {
-            let accepted = super.becomeFirstResponder()
-            if accepted { pendingFocus = false }
-            return accepted
-        }
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
     }
 }
