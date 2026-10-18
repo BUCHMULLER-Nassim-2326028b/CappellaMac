@@ -17,7 +17,7 @@ final class UpdateChecker {
                 request.setValue("CappellaMac", forHTTPHeaderField: "User-Agent")
                 let (data, response) = try await URLSession.shared.data(for: request)
                 if (response as? HTTPURLResponse)?.statusCode == 404 {
-                    if userInitiated { message("Aucune version publiée", "Aucune mise à jour n'est encore disponible sur le dépôt Cappella Mac.") }
+                    if userInitiated { message("Aucune version publiée", "Aucune mise à jour n'est encore disponible sur le dépôt Cappella.") }
                     return
                 }
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
@@ -27,12 +27,12 @@ final class UpdateChecker {
                 let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.1"
                 if available.compare(current, options: .numeric) == .orderedDescending {
                     let alert = NSAlert(); alert.messageText = "Une mise à jour est disponible"
-                    alert.informativeText = "Cappella Mac \(release.tag_name) est disponible. Version actuelle : \(current)."
+                    alert.informativeText = "Cappella \(release.tag_name) est disponible. Version actuelle : \(current)."
                     alert.addButton(withTitle: "Voir la version"); alert.addButton(withTitle: "Plus tard")
                     if alert.runModal() == .alertFirstButtonReturn {
                         NSWorkspace.shared.open(URL(string: "https://github.com/BUCHMULLER-Nassim-2326028b/CappellaMac/releases/latest")!)
                     }
-                } else if userInitiated { message("Cappella Mac est à jour", "Vous utilisez la version \(current).") }
+                } else if userInitiated { message("Cappella est à jour", "Vous utilisez la version \(current).") }
             } catch {
                 if userInitiated { message("Vérification impossible", error.localizedDescription) }
             }

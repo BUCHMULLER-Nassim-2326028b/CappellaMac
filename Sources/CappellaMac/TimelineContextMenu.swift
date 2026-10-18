@@ -6,11 +6,28 @@ import CappellaCore
 /// sign drags continue to reach their existing handlers.
 struct TimelineContextMenu: NSViewRepresentable {
     var menuAt: (CGPoint) -> NSMenu?
-    func makeNSView(context: Context) -> MenuView { let view = MenuView(); view.menuAt = menuAt; return view }
-    func updateNSView(_ view: MenuView, context: Context) { view.menuAt = menuAt }
+    var textRects: [CGRect] = []
+    func makeNSView(context: Context) -> MenuView {
+        let view = MenuView(); view.menuAt = menuAt; view.textRects = textRects; return view
+    }
+    func updateNSView(_ view: MenuView, context: Context) {
+        view.menuAt = menuAt
+        if view.textRects != textRects {
+            view.textRects = textRects
+            view.window?.invalidateCursorRects(for: view)
+        }
+    }
     final class MenuView: NSView {
         var menuAt: (CGPoint) -> NSMenu? = { _ in nil }
+        var textRects: [CGRect] = []
         override var isFlipped: Bool { true }
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            for rect in textRects {
+                let visible = bounds.intersection(rect)
+                if !visible.isEmpty { addCursorRect(visible, cursor: .iBeam) }
+            }
+        }
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(convert(point, from: superview)), let event = NSApp.currentEvent else { return nil }
             return event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) ? self : nil

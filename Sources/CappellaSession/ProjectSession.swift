@@ -12,6 +12,7 @@ public final class ProjectSession: ObservableObject {
     @Published public private(set) var identity = UUID()
     @Published public private(set) var fileURL: URL?
     public weak var window: NSWindow?
+    public var onWindowAttached: (() -> Void)?
     private let editorWindows = NSHashTable<NSWindow>.weakObjects()
     public var visibleEditorWindowCount: Int { editorWindows.allObjects.filter { $0.isVisible }.count }
     private var savedProject: Project
@@ -45,6 +46,7 @@ public final class ProjectSession: ObservableObject {
     public func attach(window: NSWindow) {
         self.window = window; editorWindows.add(window)
         updateWindowTitle()
+        onWindowAttached?()
     }
 
     private func updateWindowTitle() {
@@ -56,6 +58,8 @@ public final class ProjectSession: ObservableObject {
     }
 
     public func showWindow() {
+        terminating = false
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         window?.makeKeyAndOrderFront(nil); NSApp?.activate(ignoringOtherApps: true)
     }
 

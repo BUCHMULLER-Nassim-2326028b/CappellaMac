@@ -1,4 +1,4 @@
-# Cappella Mac — réécriture native visant la parité avec Cappella 3.7
+# Cappella Swift - réécriture native visant la parité avec Cappella 3.7
 
 Le premier prototype démarre sur Mac Apple Silicon. La version 0.2.0 reprend
 la disposition de Cappella Windows et étend l'édition et la synchronisation.
@@ -53,10 +53,10 @@ une fois, lancer à la racine :
 ```sh
 swift test --arch arm64
 bash scripts/build-macos.sh
-open "dist/Cappella Mac.app"
+open "dist/Cappella.app"
 ```
 
-Le script produit `dist/Cappella Mac.app` et `dist/CappellaMac-arm64.zip`.
+Le script produit `dist/Cappella.app` et `dist/Cappella-MacOS-arm64.zip`.
 La signature est ad hoc ; la notarisation et la signature Developer ID ne sont
 pas configurées.
 

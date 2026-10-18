@@ -19,19 +19,12 @@ struct CappellaMacApp: App {
                 .frame(minWidth: 1000, minHeight: 620)
                 .background(EditorWindowBridge(session: session).frame(width: 0, height: 0))
                 .navigationTitle(session.windowTitle)
-                .onOpenURL { session.open($0) }
         }
         .defaultSize(width: 1420, height: 744)
         .commands {
             CappellaCommands()
             CommandGroup(replacing: .appInfo) {
-                Button("À propos de Cappella Mac") {
-                    NSApplication.shared.orderFrontStandardAboutPanel(options: [
-                        .applicationName: "Cappella Mac [BETA]",
-                        .applicationVersion: "0.2.1",
-                        .credits: NSAttributedString(string: "nvssgoat")
-                    ])
-                }
+                Button("À propos de Cappella") { AppBranding.showAbout() }
             }
             CommandGroup(replacing: .help) {
                 Button("Documentation") { NSWorkspace.shared.open(URL(string: "https://cappella.app/")!) }
@@ -49,9 +42,7 @@ struct CappellaMacApp: App {
                 }
                 Divider()
                 Button("Notes de version") { NSWorkspace.shared.open(URL(string: "https://cappella.app/historique.html")!) }
-                Button("À propos de Cappella Mac") {
-                    NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Cappella Mac [BETA]", .applicationVersion: "0.2.1", .credits: NSAttributedString(string: "nvssgoat")])
-                }
+                Button("À propos de Cappella") { AppBranding.showAbout() }
             }
         }
     }

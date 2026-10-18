@@ -139,7 +139,7 @@ struct RythmoView: View {
                 context.fill(Path(CGRect(x: cursor - 1, y: 0, width: 2, height: size.height)), with: .color(Color(red: 0.77, green: 0, blue: 0)))
             }
             .overlay {
-                TimelineContextMenu { point in menu(at: point, size: geometry.size) }
+                TimelineContextMenu(menuAt: { point in menu(at: point, size: geometry.size) }, textRects: textCursorRects(size: geometry.size))
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -177,6 +177,18 @@ struct RythmoView: View {
         .clipped()
         .accessibilityLabel("Bande rythmo, quatre pistes, \(Timecode.format(frame, fps: project.framesPerSecond))")
     }
+    private func textCursorRects(size: CGSize) -> [CGRect] {
+        let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
+        let laneHeight = size.height / 4
+        return project.cues.compactMap { cue in
+            guard (0..<4).contains(cue.track), !cue.text.isEmpty else { return nil }
+            let left = max(0, size.width / 2 + CGFloat(cue.start - frame) * scale)
+            let right = min(size.width, size.width / 2 + CGFloat(cue.end - frame) * scale)
+            guard right > left else { return nil }
+            return CGRect(x: left, y: CGFloat(cue.track) * laneHeight, width: right - left, height: laneHeight)
+        }
+    }
+
     private func menu(at point: CGPoint, size: CGSize) -> NSMenu? {
         let laneHeight = size.height / 4
         guard laneHeight > 0 else { return nil }

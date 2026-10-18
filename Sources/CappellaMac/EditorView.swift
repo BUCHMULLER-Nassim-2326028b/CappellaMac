@@ -133,7 +133,11 @@ struct EditorView: View {
                         .contentShape(Rectangle()).id(cue.id)
                         .onTapGesture(count: 2) { select(cue, edit: true) }
                         .onTapGesture { select(cue, edit: false) }
-                        .overlay(TimelineContextMenu { _ in phraseContextMenu(cue.id, nil) })
+                        .overlay {
+                            GeometryReader { geometry in
+                                TimelineContextMenu(menuAt: { _ in phraseContextMenu(cue.id, nil) }, textRects: [CGRect(origin: .zero, size: geometry.size)])
+                            }
+                        }
                     }
                 }.padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .topLeading)
             }

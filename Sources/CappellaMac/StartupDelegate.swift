@@ -5,12 +5,14 @@ import CappellaSession
 @MainActor
 final class StartupDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppBranding.install()
         FrenchMenus.install()
         if ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_MARKER"] == nil {
             AutomaticSaveController.shared.start()
             if ApplicationPreferences.load().checkUpdates { UpdateChecker.shared.check() }
         }
         DispatchQueue.main.async {
+            ExternalFileOpenRouter.shared.didFinishLaunching()
             if let path = ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_FIXTURE"] {
                 if !ProjectSession.shared.open(URL(fileURLWithPath: path)) {
                     FileHandle.standardError.write(Data("Impossible d'ouvrir la fixture.\n".utf8))
@@ -19,18 +21,18 @@ final class StartupDelegate: NSObject, NSApplicationDelegate {
             FrenchMenus.refresh()
         }
     }
-    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-        ProjectSession.shared.open(URL(fileURLWithPath: filename))
-    }
-    func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        for filename in filenames {
-            if !ProjectSession.shared.open(URL(fileURLWithPath: filename)) { sender.reply(toOpenOrPrint: .cancel); return }
-        }
-        sender.reply(toOpenOrPrint: .success)
+    // Implement the URL-based AppKit entry point exclusively. Mixing it with
+    // SwiftUI onOpenURL on a unique Window can replace/close the current scene.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        ExternalFileOpenRouter.shared.open(urls)
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if !hasVisibleWindows { ProjectSession.shared.showWindow() }
-        return true
+        ExternalFileOpenRouter.shared.showEditor()
+        return false
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // A temporarily absent editor during launch/reopening is not a quit.
+        false
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         ProjectSession.shared.prepareToTerminate() ? .terminateNow : .terminateCancel

@@ -43,10 +43,13 @@ final class EditorActions: ObservableObject {
     var detectionMode: Bool { state.detectionMode }
 }
 
+@MainActor
 struct CappellaCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
     @FocusedObject private var editor: EditorActions?
     private func run(_ action: EditorAction) { editor?.perform(action) }
     var body: some Commands {
+        let _ = ExternalFileOpenRouter.shared.installWindowOpener { openWindow(id: "editor") }
         CappellaFileCommands()
         CommandGroup(after: .pasteboard) {
             Divider()

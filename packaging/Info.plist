@@ -3,13 +3,15 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Cappella Mac</string>
+	<string>Cappella</string>
 	<key>CFBundleDisplayName</key>
-	<string>Cappella Mac</string>
+	<string>Cappella</string>
 	<key>CFBundleIdentifier</key>
 	<string>org.cappella-rewrite.mac</string>
 	<key>CFBundleExecutable</key>
 	<string>CappellaMac</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon.icns</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -38,7 +40,7 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Projet Cappella Mac</string>
+			<string>Projet Cappella</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
@@ -55,7 +57,7 @@
 			<key>UTTypeIdentifier</key>
 			<string>org.cappella-rewrite.project</string>
 			<key>UTTypeDescription</key>
-			<string>Projet Cappella Mac</string>
+			<string>Projet Cappella</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.json</string>
