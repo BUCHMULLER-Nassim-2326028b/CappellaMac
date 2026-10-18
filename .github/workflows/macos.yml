@@ -18,8 +18,23 @@ jobs:
         run: swift test --arch arm64
       - name: Build and package native app
         run: bash scripts/build-macos.sh
+      - name: Launch packaged release app on macOS 15
+        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app"
       - uses: actions/upload-artifact@v4
         with:
           name: CappellaMac-arm64
           path: dist/CappellaMac-arm64.zip
           if-no-files-found: error
+  launch-macos-26:
+    needs: build
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: CappellaMac-arm64
+          path: dist
+      - name: Extract app built on macOS 15
+        run: ditto -x -k dist/CappellaMac-arm64.zip dist
+      - name: Launch same release app on macOS 26
+        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app"

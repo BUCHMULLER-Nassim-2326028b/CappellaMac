@@ -23,6 +23,8 @@ struct ProjectDocument: FileDocument {
 
 @main
 struct CappellaMacApp: App {
+    @NSApplicationDelegateAdaptor(StartupDelegate.self) private var startupDelegate
+
     var body: some Scene {
         DocumentGroup(newDocument: ProjectDocument()) { file in
             EditorView(project: file.$document.project)
@@ -33,7 +35,7 @@ struct CappellaMacApp: App {
                 Button("À propos de Cappella Mac") {
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .applicationName: "Cappella Mac — Réécriture expérimentale",
-                        .applicationVersion: "0.1.0",
+                        .applicationVersion: "0.1.1",
                         .credits: NSAttributedString(string: "Projet indépendant. Compatibilité Cappella/DetX en cours d'étude.")
                     ])
                 }

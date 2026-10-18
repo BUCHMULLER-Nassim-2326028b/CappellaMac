@@ -7,7 +7,11 @@ let package = Package(
     products: [.executable(name: "CappellaMac", targets: ["CappellaMac"])],
     targets: [
         .target(name: "CappellaCore"),
-        .executableTarget(name: "CappellaMac", dependencies: ["CappellaCore"]),
+        .executableTarget(
+            name: "CappellaMac",
+            dependencies: ["CappellaCore"],
+            linkerSettings: [.linkedFramework("AVKit")]
+        ),
         .testTarget(name: "CappellaCoreTests", dependencies: ["CappellaCore"])
     ]
 )

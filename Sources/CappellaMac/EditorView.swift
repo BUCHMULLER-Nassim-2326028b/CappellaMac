@@ -1,5 +1,5 @@
 import SwiftUI
-import AVKit
+import AppKit
 import UniformTypeIdentifiers
 import CappellaCore
 
@@ -65,7 +65,7 @@ struct EditorView: View {
             .padding().frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
 
             VStack(spacing: 0) {
-                VideoPlayer(player: transport.player).frame(minHeight: 180, idealHeight: 300)
+                NativeVideoView(player: transport.player).frame(minHeight: 180, idealHeight: 300)
                 HStack {
                     Button("Ouvrir une vidéo…") { importingVideo = true }
                     Text(transport.mediaName).lineLimit(1).foregroundStyle(.secondary)
@@ -108,6 +108,7 @@ struct EditorView: View {
                 }
             }.frame(minWidth: 730)
         }
+        .onAppear { StartupSmokeCheck.recordEditorAppearance() }
         .fileImporter(isPresented: $importingVideo, allowedContentTypes: [.movie, .audio]) { result in
             switch result { case .success(let url): transport.open(url); case .failure(let problem): error = problem.localizedDescription }
         }

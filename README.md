@@ -1,7 +1,9 @@
 # Cappella Mac - portage Mac OS
 
 Objectif : reproduire Cappella 3.7 sur Mac Apple Silicon. Ce projet est une
-**première implémentation expérimentale, pas encore compilée ni exécutée sur macOS**.
+**première implémentation expérimentale**. La compilation ARM64 a été effectuée via
+GitHub Actions. Un crash à l’ouverture de l’éditeur sur macOS 26.5 a été signalé ;
+la version 0.1.1 remplace la vue vidéo concernée, avec validation à refaire.
 Il ne constitue pas encore un remplacement complet du logiciel.
 
 Swift, SwiftUI et AVFoundation ; aucune dépendance de paquet externe.
@@ -30,11 +32,14 @@ ne sont pas configurées. Une archive téléchargée peut être bloquée par mac
 Le workflow [.github/workflows/macos.yml](.github/workflows/macos.yml) prévoit les
 tests et le packaging sur un runner Apple Silicon `macos-15`. Après dépôt des
 sources sur GitHub, lancer « Native macOS ARM64 » dans Actions et télécharger
-l'artefact. Aucun workflow distant n'a été déclenché ici.
+l’artefact. Le workflow lance aussi le `.app` produit sur macOS 15 puis le même
+binaire sur macOS 26. Il vérifie que l’éditeur devient visible et reste ouvert ;
+une compilation réussie seule ne suffit plus. Ces nouveaux contrôles restent
+à exécuter après le push de la correction.
 
 ## Essayer un DetX
 
-1. Créer un document et choisir la cadence avant l'import (25 i/s par défaut).
+1. Au démarrage, un document vide doit apparaître. Choisir la cadence avant l’import (25 i/s par défaut).
 2. Cliquer sur « Importer un DetX… » et sélectionner une copie du fichier.
 3. Ouvrir la vidéo correspondante : les anciens chemins Windows ne sont pas résolus sur Mac.
 4. Modifier les textes, rôles et bornes temporelles.
