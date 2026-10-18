@@ -1,13 +1,18 @@
 import SwiftUI
 import AppKit
 
+func cappellaFunctionKey(_ number: Int) -> KeyEquivalent {
+    KeyEquivalent(Character(UnicodeScalar(0xF704 + number - 1)!))
+}
+
 enum EditorAction {
     case openMedia, openVI, importDetX, importRoles, exportDetX, exportScript, exportCrossTable
     case roles, properties, find, goTimecode, shift, timestamp, check, preferences
     case playPause, stop, step(Int), rate(Float), navigate(String, Int)
     case addPhrase, deletePhrase, track(Int), mode, addSign(String), deleteSign, shiftSign(Int), voiceOff
     case addLoop, addShot, markPosition, positions, zoom(Double), grid, detection, fullScreen, projection
-    case toggleVI, mute, volume(Float)
+    case toggleVI, mute, volume(Float), recordAudio, detectShots
+    case moveTrack(Int), relativeTrack(Int), cancelPhrase, findNext, reaction(String), shiftAnchor(Int), detachSigns, jumpAnchor(Int), copyPhrase, cutPhrase, pastePhrase
 }
 
 struct EditorActions {
@@ -16,6 +21,8 @@ struct EditorActions {
     var hasSign: Bool
     var showGrid: Bool
     var showDetection: Bool
+    var recording: Bool
+    var usingVI: Bool
     var detectionMode: Bool
 }
 
@@ -31,105 +38,111 @@ struct CappellaCommands: Commands {
     @FocusedValue(\.editorActions) private var editor
     private func run(_ action: EditorAction) { editor?.perform(action) }
     var body: some Commands {
-        CommandGroup(after: .importExport) {
-            Divider()
-            Button("Ouvrir l'image…") { run(.openMedia) }.keyboardShortcut("v", modifiers: [.command, .shift])
-            Menu("Importer") {
-                Button("Détection DetX…") { run(.importDetX) }
-                Button("Liste de rôles d'un DetX…") { run(.importRoles) }
-            }
-            Menu("Exporter") {
-                Button("Document DetX…") { run(.exportDetX) }
-                Button("Script…") { run(.exportScript) }.keyboardShortcut("e")
-                Button("Croisillé CSV…") { run(.exportCrossTable) }
-            }
-            Button("Propriétés…") { run(.properties) }.keyboardShortcut("p")
-        }
+        CappellaFileCommands()
         CommandGroup(after: .pasteboard) {
             Divider()
-            Button("Rechercher…") { run(.find) }.keyboardShortcut("f")
+            Button("Rechercher…") { run(.find) }.keyboardShortcut("f", modifiers: .control)
             Menu("Piste") {
-                ForEach(0..<4) { track in Button("Piste \(track + 1)") { run(.track(track)) } }
+                ForEach(0..<4) { track in Button("Piste \(track + 1)") { run(.track(track)) }.keyboardShortcut(cappellaFunctionKey(5 + track), modifiers: []) }
             }
             Menu("Ajouter un signe") {
-                Button("Début de phrase ouverte") { run(.addSign("in_open")) }
-                Button("Fin de phrase ouverte") { run(.addSign("out_open")) }
-                Button("Début de phrase fermée") { run(.addSign("in_close")) }
-                Button("Fin de phrase fermée") { run(.addSign("out_close")) }
+                Button("Début de phrase ouverte") { run(.addSign("in_open")) }.keyboardShortcut("2", modifiers: [])
+                Button("Fin de phrase ouverte") { run(.addSign("out_open")) }.keyboardShortcut("3", modifiers: [])
+                Button("Début de phrase fermée") { run(.addSign("in_close")) }.keyboardShortcut("2", modifiers: .control)
+                Button("Fin de phrase fermée") { run(.addSign("out_close")) }.keyboardShortcut("3", modifiers: .control)
                 Divider()
-                Button("Labiale m,b,p") { run(.addSign("mpb")) }
-                Button("Demi-labiale f,v,r") { run(.addSign("fvr")) }
-                Button("Neutre") { run(.addSign("neutral")) }
-                Button("Cul de poule w, eu, que") { run(.addSign("weuque")) }
+                Button("Labiale m,b,p") { run(.addSign("mpb")) }.keyboardShortcut("4", modifiers: [])
+                Button("Demi-labiale f,v,r") { run(.addSign("fvr")) }.keyboardShortcut("5", modifiers: [])
+                Button("Neutre") { run(.addSign("neutral")) }.keyboardShortcut("6", modifiers: [])
+                Button("Cul de poule w, eu, que") { run(.addSign("weuque")) }.keyboardShortcut("9", modifiers: [])
+                Button("Grande ouverture A") { run(.addSign("a")) }.keyboardShortcut("7", modifiers: [])
+                Button("Ouverture en rond O") { run(.addSign("o")) }.keyboardShortcut("8", modifiers: [])
                 Divider()
-                Button("Boucle") { run(.addLoop) }
-                Button("Changement de plan") { run(.addShot) }
+                Button("Boucle") { run(.addLoop) }.keyboardShortcut("0", modifiers: [])
+                Button("Changement de plan") { run(.addShot) }.keyboardShortcut("1", modifiers: [])
             }
-            Button("Déplacer le signe à gauche") { run(.shiftSign(-1)) }.disabled(editor?.hasSign != true)
-            Button("Déplacer le signe à droite") { run(.shiftSign(1)) }.disabled(editor?.hasSign != true)
-            Button("Supprimer le signe") { run(.deleteSign) }.disabled(editor?.hasSign != true)
+            Button("Déplacer le signe à gauche") { run(.shiftSign(-1)) }.keyboardShortcut(.leftArrow, modifiers: .control).disabled(editor?.hasSign != true)
+            Button("Déplacer le signe à droite") { run(.shiftSign(1)) }.keyboardShortcut(.rightArrow, modifiers: .control).disabled(editor?.hasSign != true)
+            Button("Supprimer le signe") { run(.deleteSign) }.keyboardShortcut(.deleteForward, modifiers: []).disabled(editor?.hasSign != true)
             Divider()
-            Button(editor?.detectionMode == true ? "Passer en mode Édition" : "Passer en mode Détection") { run(.mode) }
+            Button("Décrocher tous les signes") { run(.detachSigns) }.keyboardShortcut("d", modifiers: [.control, .shift])
+            Divider()
+            Button("Mode Édition / Mode Détection") { run(.mode) }.keyboardShortcut(.return, modifiers: [])
+            Button("Annuler la phrase") { run(.cancelPhrase) }.keyboardShortcut(.escape, modifiers: [])
             Button("Nouvelle phrase") { run(.addPhrase) }.keyboardShortcut("n", modifiers: [.command, .option])
-            Button("Supprimer la phrase") { run(.deletePhrase) }.keyboardShortcut(.delete, modifiers: [.command])
+            Button("Supprimer la phrase") { run(.deletePhrase) }.keyboardShortcut(.deleteForward, modifiers: [.control])
                 .disabled(editor?.hasSelection != true)
-            Button("Voix off") { run(.voiceOff) }.keyboardShortcut("u").disabled(editor?.hasSelection != true)
-            Button("Rôles…") { run(.roles) }.keyboardShortcut("r")
-            Button("Vérifier") { run(.check) }
+            Button("Voix off") { run(.voiceOff) }.keyboardShortcut("u", modifiers: .control).disabled(editor?.hasSelection != true)
+            Button("Rôles…") { run(.roles) }.keyboardShortcut("r", modifiers: .control)
+            Menu("Déplacer la phrase") {
+                ForEach(0..<4) { track in
+                    Button("Piste \(track + 1)") { run(.moveTrack(track)) }
+                        .keyboardShortcut(cappellaFunctionKey(5 + track), modifiers: .control)
+                }
+            }
+            Button("Détection des changements de plan…") { run(.detectShots) }
+            Button("Vérifier") { run(.check) }.keyboardShortcut(cappellaFunctionKey(4), modifiers: [])
             Button("Décaler la rythmo…") { run(.shift) }
+            Divider()
+            Button("Préférences…") { run(.preferences) }.keyboardShortcut(",")
         }
         CommandMenu("Contrôle") {
-            Button("Lecture / Pause") { run(.playPause) }
-            Button("Lecture avant") { run(.rate(1)) }
-            Button("Lecture inverse") { run(.rate(-1)) }
+            Button("Lecture/Pause") { run(.playPause) }.keyboardShortcut(.space, modifiers: [])
+            Button("Lecture avant") { run(.rate(1)) }.keyboardShortcut(.upArrow, modifiers: [])
+            Button("Lecture inverse") { run(.rate(-1)) }.keyboardShortcut(.downArrow, modifiers: [])
             Button("Stop") { run(.stop) }
             Divider()
-            Button("Image suivante") { run(.step(1)) }
-            Button("Image précédente") { run(.step(-1)) }
+            Button("Image suivante") { run(.step(1)) }.keyboardShortcut(.rightArrow, modifiers: .option)
+            Button("Image précédente") { run(.step(-1)) }.keyboardShortcut(.leftArrow, modifiers: .option)
+            Button("Jog avant") { run(.rate(0.25)) }
+            Button("Jog arrière") { run(.rate(-0.25)) }
             Menu("Shuttle") {
                 ForEach([-10.0, -3, -1, -0.75, -0.5, -0.25, -0.125, 0.125, 0.25, 0.5, 0.75, 1, 3, 10], id: \.self) { rate in
                     Button("\(rate < 0 ? "Arrière" : "Avant") ×\(abs(rate).formatted())") { run(.rate(Float(rate))) }
                 }
             }
             Divider()
-            Button("Signe précédent") { run(.navigate("sign", -1)) }
-            Button("Signe suivant") { run(.navigate("sign", 1)) }
-            Button("Phrase précédente") { run(.navigate("phrase", -1)) }
-            Button("Phrase suivante") { run(.navigate("phrase", 1)) }
-            Button("Phrase précédente de ce rôle") { run(.navigate("role", -1)) }
-            Button("Phrase suivante de ce rôle") { run(.navigate("role", 1)) }
-            Button("Boucle précédente") { run(.navigate("loop", -1)) }
-            Button("Boucle suivante") { run(.navigate("loop", 1)) }
+            Button("Signe précédent") { run(.navigate("sign", -1)) }.keyboardShortcut(.leftArrow, modifiers: [])
+            Button("Signe suivant") { run(.navigate("sign", 1)) }.keyboardShortcut(.rightArrow, modifiers: [])
+            Button("Phrase précédente") { run(.navigate("phrase", -1)) }.keyboardShortcut(cappellaFunctionKey(9), modifiers: [])
+            Button("Phrase suivante") { run(.navigate("phrase", 1)) }.keyboardShortcut(cappellaFunctionKey(10), modifiers: [])
+            Button("Phrase précédente de ce rôle") { run(.navigate("role", -1)) }.keyboardShortcut(cappellaFunctionKey(9), modifiers: .control)
+            Button("Phrase suivante de ce rôle") { run(.navigate("role", 1)) }.keyboardShortcut(cappellaFunctionKey(10), modifiers: .control)
+            Button("Boucle précédente") { run(.navigate("loop", -1)) }.keyboardShortcut(cappellaFunctionKey(11), modifiers: [])
+            Button("Boucle suivante") { run(.navigate("loop", 1)) }.keyboardShortcut(cappellaFunctionKey(12), modifiers: [])
             Button("Plan précédent") { run(.navigate("shot", -1)) }
             Button("Plan suivant") { run(.navigate("shot", 1)) }
             Divider()
             Button("Changer le timestamp…") { run(.timestamp) }
+            Button("Machine Orphée…") {}.disabled(true).help("Le protocole de la machine Orphée n'est pas encore porté sur Mac.")
         }
         CommandMenu("Position") {
-            Button("Aller au timecode…") { run(.goTimecode) }.keyboardShortcut("g")
-            Button("Marquer cette position…") { run(.markPosition) }.keyboardShortcut("d")
-            Button("Positions mémorisées…") { run(.positions) }
+            Button("Aller au timecode…") { run(.goTimecode) }.keyboardShortcut("g", modifiers: .control)
+            Button("Marquer cette position…") { run(.markPosition) }.keyboardShortcut("d", modifiers: .control)
+            Button("Supprimer une position…") { run(.positions) }
         }
         CommandMenu("Affichage") {
-            Toggle("Détection", isOn: Binding(get: { editor?.showDetection ?? true }, set: { _ in run(.detection) }))
-            Toggle("Grille et signes", isOn: Binding(get: { editor?.showGrid ?? true }, set: { _ in run(.grid) }))
+            Toggle("Détection", isOn: Binding(get: { editor?.showDetection ?? true }, set: { _ in run(.detection) })).keyboardShortcut(cappellaFunctionKey(9), modifiers: [.control, .option])
+            Toggle("Grille et signes", isOn: Binding(get: { editor?.showGrid ?? true }, set: { _ in run(.grid) })).keyboardShortcut(cappellaFunctionKey(10), modifiers: [.control, .option])
             Button("Plein écran") { run(.fullScreen) }.keyboardShortcut(.return, modifiers: [.option])
             Divider()
-            Button("Zoom avant") { run(.zoom(1.25)) }.keyboardShortcut("+")
-            Button("Zoom arrière") { run(.zoom(0.8)) }.keyboardShortcut("-")
+            Button("Zoom avant") { run(.zoom(1.25)) }.keyboardShortcut("+", modifiers: [])
+            Button("Zoom arrière") { run(.zoom(0.8)) }.keyboardShortcut("-", modifiers: [])
+            Divider()
+            Button("Désentrelacer") {}.disabled(true).help("Le réglage manuel du désentrelacement reste à porter.")
+            Button("Haute qualité") {}.disabled(true).help("Le réglage manuel de la qualité reste à porter.")
             Button("Écran de contrôle") { run(.projection) }
         }
         CommandMenu("Audio") {
-            Button("Ouvrir la piste VI…") { run(.openVI) }
-            Button("Passer en VI / VO") { run(.toggleVI) }
+            Button(editor?.usingVI == true ? "Passer en VO" : "Passer en VI") { run(.toggleVI) }.keyboardShortcut(cappellaFunctionKey(2), modifiers: [])
             Divider()
-            Button("Monter le volume") { run(.volume(0.1)) }
-            Button("Baisser le volume") { run(.volume(-0.1)) }
-            Button("Couper / rétablir le son") { run(.mute) }
+            Button("Monter le volume") { run(.volume(0.1)) }.keyboardShortcut("+", modifiers: .control)
+            Button("Baisser le volume") { run(.volume(-0.1)) }.keyboardShortcut("-", modifiers: .control)
+            Button("Couper le son") { run(.mute) }.keyboardShortcut("*", modifiers: .control)
+            Divider()
+            Button(editor?.recording == true ? "Arrêter l'enregistrement" : "Enregistrer…") { run(.recordAudio) }
         }
-        CommandGroup(replacing: .appSettings) {
-            Button("Préférences…") { run(.preferences) }.keyboardShortcut(",")
-        }
+        CommandGroup(replacing: .appSettings) {}
     }
 }
 
@@ -147,41 +160,159 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.window?.isKeyWindow == true,
-                      !(self.window?.firstResponder is NSTextView),
-                      !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control) else { return event }
-                let action: EditorAction?
-                switch event.keyCode {
-                case 49: action = .playPause
-                case 123: action = event.modifierFlags.contains(.option) ? .step(-1) : .navigate("sign", -1)
-                case 124: action = event.modifierFlags.contains(.option) ? .step(1) : .navigate("sign", 1)
-                case 126: action = .rate(1)
-                case 125: action = .rate(-1)
-                case 36: action = .mode
-                case 96: action = .track(0)
-                case 97: action = .track(1)
-                case 98: action = .track(2)
-                case 100: action = .track(3)
-                case 101: action = .navigate("phrase", -1)
-                case 109: action = .navigate("phrase", 1)
-                case 103: action = .navigate("loop", -1)
-                case 111: action = .navigate("loop", 1)
-                default:
-                    switch event.charactersIgnoringModifiers {
-                    case "2": action = .addSign("in_open")
-                    case "3": action = .addSign("out_open")
-                    case "4": action = .addSign("mpb")
-                    case "5": action = .addSign("fvr")
-                    case "6": action = .addSign("neutral")
-                    case "9": action = .addSign("weuque")
-                    case "0": action = .addLoop
-                    case "1": action = .addShot
-                    default: action = nil
+                      self.window?.attachedSheet == nil else { return event }
+                let flags = event.modifierFlags.intersection([.control, .command, .option, .shift])
+                let ctrl = flags.contains(.control) || flags.contains(.command)
+                let alt = flags.contains(.option)
+                let shift = flags.contains(.shift)
+                let typing = self.window?.firstResponder is NSTextView
+                let key = event.charactersIgnoringModifiers ?? ""
+                var action: EditorAction?
+                if ctrl {
+                    switch event.keyCode {
+                    case 123: action = alt ? .shiftAnchor(-1) : .shiftSign(-1)
+                    case 124: action = alt ? .shiftAnchor(1) : .shiftSign(1)
+                    case 126: action = .relativeTrack(-1)
+                    case 125: action = .relativeTrack(1)
+                    case 96: action = .moveTrack(0)
+                    case 97: action = .moveTrack(1)
+                    case 98: action = .moveTrack(2)
+                    case 100: action = .moveTrack(3)
+                    case 101: action = alt ? .detection : .navigate("role", -1)
+                    case 109: action = alt ? .grid : .navigate("role", 1)
+                    case 111: action = .fullScreen
+                    case 117, 51: action = .deletePhrase
+                    case 36, 76: break
+                    default:
+                        switch key.lowercased() {
+                        case "c" where !typing: action = .copyPhrase
+                        case "x" where !typing: action = .cutPhrase
+                        case "v" where !typing && !shift: action = .pastePhrase
+                        case "r": action = .roles
+                        case "f": action = .find
+                        case "g": action = .goTimecode
+                        case "p": action = .properties
+                        case "u": action = .voiceOff
+                        case "d": action = shift ? .detachSigns : .markPosition
+                        case "v" where shift: action = .openMedia
+                        case "+", "=": action = .volume(0.1)
+                        case "-": action = .volume(-0.1)
+                        case "*": action = .mute
+                        case "2": action = .addSign("in_close")
+                        case "3": action = .addSign("out_close")
+                        case "n", "o", "s", "z", "x", "c", "v", "a":
+                            // Windows muscle memory, forwarded to the native responder chain.
+                            let selectors = ["n":"newDocument:", "o":"openDocument:", "s": shift ? "saveDocumentAs:" : alt ? "saveDocumentTo:" : "saveDocument:",
+                                             "z": shift ? "redo:" : "undo:", "x":"cut:", "c":"copy:", "v":"paste:", "a":"selectAll:"]
+                            if flags.contains(.control), let selector = selectors[key.lowercased()] { NSApp.sendAction(Selector(selector), to: nil, from: nil); return nil }
+                        default: break
+                        }
+                    }
+                } else {
+                    switch event.keyCode {
+                    case 36, 76: action = alt ? .fullScreen : .mode
+                    case 53: action = .cancelPhrase
+                    case 122:
+                        NSWorkspace.shared.open(URL(string: "https://cappella.app/")!); return nil
+                    case 120: action = .toggleVI
+                    case 99: action = .findNext
+                    case 118: action = .check
+                    case 96: action = .track(0)
+                    case 97: action = .track(1)
+                    case 98: action = .track(2)
+                    case 100: action = .track(3)
+                    case 101: action = .navigate("phrase", -1)
+                    case 109: action = .navigate("phrase", 1)
+                    case 103: action = .navigate("loop", -1)
+                    case 111: action = .navigate("loop", 1)
+                    case 48 where !typing: action = .navigate("phrase", shift ? 1 : -1)
+                    case 49 where !typing: action = .playPause
+                    case 123 where !typing || alt: action = alt ? .step(-1) : .navigate("sign", -1)
+                    case 124 where !typing || alt: action = alt ? .step(1) : .navigate("sign", 1)
+                    case 126 where !typing: action = .rate(1)
+                    case 125 where !typing: action = .rate(-1)
+                    case 117 where !typing: action = .deleteSign
+                    default:
+                        if !typing {
+                            switch key {
+                            case "2": action = .addSign("in_open")
+                            case "3": action = .addSign("out_open")
+                            case "4": action = .addSign("mpb")
+                            case "5": action = .addSign("fvr")
+                            case "6": action = .addSign("neutral")
+                            case "7": action = .addSign("a")
+                            case "8": action = .addSign("o")
+                            case "9": action = .addSign("weuque")
+                            case "0": action = .addLoop
+                            case "1": action = .addShot
+                            case "+", "=": action = .zoom(1.25)
+                            case "-": action = .zoom(0.8)
+                            case "v", "V": action = .rate(-0.75)
+                            case "b", "B": action = .rate(-0.25)
+                            case "n", "N": action = .rate(0.25)
+                            case ",": action = .rate(0.75)
+                            default:
+                                let reactions = ["a":"ah", "o":"oh", "l":"(pleure)", "p":"(peur)", "j":"(joie)", "u":"euh", "U":"huh !",
+                                    "i":"(rire)", "g":"grrr", "G":"argh !", "e":"(effort)", "c":"(course)", "f":"fff", "h":"hhh", "H":"han !",
+                                    "m":"(mts)", "M":"mmm", "t":"(tst)", "s":"(snif)", "x":"(X)", "?":"(reac ?)", "r":"(reac)"]
+                                if let text = reactions[event.characters ?? key] { action = .reaction(text) }
+                            }
+                        }
                     }
                 }
-                guard let action else { return event }
+                if !ctrl, let character = event.characters, character == "&" || character == "²" {
+                    action = .jumpAnchor(character == "&" ? 1 : -1)
+                }
+                if ctrl, (event.keyCode == 36 || event.keyCode == 76), let view = self.window?.firstResponder as? NSTextView {
+                    view.insertNewlineIgnoringFieldEditor(nil); return nil
+                }
+                guard let action else {
+                    // Plain-character menu equivalents must never steal a letter
+                    // or a number from the on-band text editor.
+                    if typing, !ctrl, let view = self.window?.firstResponder as? NSTextView {
+                        view.keyDown(event); return nil
+                    }
+                    return event
+                }
                 self.perform?(action); return nil
             }
         }
         deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+    }
+}
+
+private struct CappellaFileCommands: Commands {
+    @FocusedValue(\.editorActions) private var editor
+    private func run(_ action: EditorAction) { editor?.perform(action) }
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Nouveau") { NSDocumentController.shared.newDocument(nil) }.keyboardShortcut("n")
+            Button("Ouvrir…") { NSDocumentController.shared.openDocument(nil) }.keyboardShortcut("o")
+        }
+        CommandGroup(after: .newItem) {
+            Button("Ouvrir une sauvegarde…") { NSDocumentController.shared.openDocument(nil) }
+        }
+        CommandGroup(replacing: .printItem) {}
+        CommandGroup(replacing: .saveItem) {
+            Button("Enregistrer") { NSApp.sendAction(Selector(("saveDocument:")), to: nil, from: nil) }.keyboardShortcut("s")
+            Button("Enregistrer sous…") { NSApp.sendAction(Selector(("saveDocumentAs:")), to: nil, from: nil) }.keyboardShortcut("s", modifiers: [.command, .shift])
+            Button("Enregistrer une copie sous…") { NSApp.sendAction(Selector(("saveDocumentTo:")), to: nil, from: nil) }.keyboardShortcut("s", modifiers: [.command, .option])
+        }
+        CommandGroup(after: .importExport) {
+            Divider()
+            Button("Ouvrir l'image…") { run(.openMedia) }.keyboardShortcut("v", modifiers: [.control, .shift])
+            Menu("Importer") {
+                Button("Détection DetX…") { run(.importDetX) }
+                Button("Liste de rôles d'un DetX…") { run(.importRoles) }
+            }
+            Menu("Exporter") {
+                Button("Document DetX…") { run(.exportDetX) }
+                Button("Script…") { run(.exportScript) }.keyboardShortcut("e")
+                Button("Croisillé CSV…") { run(.exportCrossTable) }
+            }
+            Button("Propriétés…") { run(.properties) }.keyboardShortcut("p", modifiers: .control)
+            Divider()
+            Button("Quitter") { NSApp.terminate(nil) }
+        }
     }
 }

@@ -4,17 +4,26 @@ import AppKit
 /// rather than an Open panel when no document has been requested or restored.
 final class StartupDelegate: NSObject, NSApplicationDelegate {
     private var openingSmokeFixture = false
+    private var menuTimer: Timer?
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         false
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DispatchQueue.main.async { self.showEditorIfNeeded() }
+        DispatchQueue.main.async { self.showEditorIfNeeded(); FrenchMenus.refresh() }
+        if menuTimer == nil {
+            let timer = Timer(timeInterval: 0.5, repeats: true) { _ in FrenchMenus.refresh() }
+            RunLoop.main.add(timer, forMode: .common); menuTimer = timer
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         guard !hasVisibleWindows else { return true }
-        DispatchQueue.main.async { self.showEditorIfNeeded() }
+        DispatchQueue.main.async { self.showEditorIfNeeded(); FrenchMenus.refresh() }
+        if menuTimer == nil {
+            let timer = Timer(timeInterval: 0.5, repeats: true) { _ in FrenchMenus.refresh() }
+            RunLoop.main.add(timer, forMode: .common); menuTimer = timer
+        }
         return false
     }
 

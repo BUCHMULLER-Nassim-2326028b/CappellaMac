@@ -84,7 +84,13 @@ private struct RoleInspector: View {
 }
 
 struct PropertiesPanel: View {
-    @Binding var project: Project
+    @Binding var source: Project
+    @State private var project: Project
+    var applyFiles: (Project) -> Void
+    @State private var fileError: String?
+    init(project: Binding<Project>, applyFiles: @escaping (Project) -> Void) {
+        _source = project; _project = State(initialValue: project.wrappedValue); self.applyFiles = applyFiles
+    }
     @Environment(\.dismiss) private var dismiss
     private func metadata(_ key: String) -> Binding<String> {
         Binding(get: { project.metadata?[key] ?? "" }, set: {
@@ -95,6 +101,12 @@ struct PropertiesPanel: View {
     var body: some View {
         VStack {
             TabView {
+                VStack(spacing: 18) {
+                    fileRow("Image", value: project.videoPath ?? "", browse: { chooseFile(0) })
+                    fileRow("Son", value: project.audioPath ?? "", browse: { chooseFile(1) })
+                    fileRow("Liste des rôles", value: project.metadata?["roles-file"] ?? "", browse: { chooseFile(2) })
+                    Spacer()
+                }.padding(24).tabItem { Text("Fichier") }
                 Form {
                     TextField("Titre original", text: $project.title)
                     TextField("Titre français", text: metadata("title2"))
@@ -119,9 +131,12 @@ struct PropertiesPanel: View {
                     TextField("Distributeur", text: metadata("production.distributor"))
                     TextField("Diffuseur", text: metadata("production.diffuser"))
                     TextField("Acteurs principaux", text: metadata("production.actors"))
-                    Text("Résumé"); TextEditor(text: metadata("summary")).frame(height: 130)
-                    Text("Notes"); TextEditor(text: metadata("notes")).frame(height: 85)
+
                 }.padding().tabItem { Text("Production") }
+                Form {
+                    Text("Résumé"); TextEditor(text: metadata("summary")).frame(height: 160)
+                    Text("Notes"); TextEditor(text: metadata("notes")).frame(height: 160)
+                }.padding().tabItem { Text("Description") }
                 VStack {
                     Text("Boucles").font(.headline)
                     List {
@@ -143,8 +158,43 @@ struct PropertiesPanel: View {
                     }
                 }.padding().tabItem { Text("Repères") }
             }
-            HStack { Spacer(); Button("Fermer") { dismiss() }.keyboardShortcut(.defaultAction) }.padding()
-        }.frame(width: 660, height: 570)
+            HStack {
+                Spacer()
+                Button("OK") { apply(); if fileError == nil { dismiss() } }.keyboardShortcut(.defaultAction)
+                Button("Annuler") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Appliquer", action: apply).disabled(source == project)
+            }.padding()
+        }.frame(width: 700, height: 570)
+        .alert("Propriétés", isPresented: Binding(get: { fileError != nil }, set: { if !$0 { fileError = nil } })) {
+            Button("OK") { fileError = nil }
+        } message: { Text(fileError ?? "") }
+    }
+    private func apply() {
+        do { try project.validate(); let old = source; source = project; fileError = nil; applyFiles(old) }
+        catch { fileError = error.localizedDescription }
+    }
+    private func chooseFile(_ kind: Int) {
+        let picker = NSOpenPanel(); picker.allowsMultipleSelection = false
+        picker.allowedContentTypes = kind == 0 ? [.movie] : kind == 1 ? [.audio] : [.detx, .xml]
+        guard picker.runModal() == .OK, let url = picker.url else { return }
+        if kind == 0 { project.videoPath = url.path }
+        else if kind == 1 { project.audioPath = url.path }
+        else {
+            do {
+                let imported = try DetX.read(Data(contentsOf: url), fps: project.framesPerSecond)
+                for candidate in imported.roles where !project.roles.contains(where: { $0.name.localizedCaseInsensitiveCompare(candidate.name) == .orderedSame }) {
+                    var role = candidate; role.id = UUID(); role.sourceID = nil; project.roles.append(role)
+                }
+                if project.metadata == nil { project.metadata = [:] }; project.metadata?["roles-file"] = url.path
+            } catch { fileError = error.localizedDescription }
+        }
+    }
+    private func fileRow(_ label: String, value: String, browse: @escaping () -> Void) -> some View {
+        HStack {
+            Text(label + " :").frame(width: 95, alignment: .trailing)
+            TextField("", text: .constant(value)).disabled(true)
+            Button("Parcourir…", action: browse)
+        }
     }
 }
 
@@ -198,15 +248,19 @@ struct RoleImportPanel: View {
 struct DialogueTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var caret: Int
+    var fontName = "Apple Chancery"
+    var fontSize = 28.0
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.borderType = .bezelBorder
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = false; scroll.hasHorizontalScroller = false; scroll.borderType = .noBorder; scroll.drawsBackground = true; scroll.backgroundColor = .black
         let view = FocusedTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 70)); view.isRichText = false; view.allowsUndo = true
-        view.font = NSFont(name: "Courier New", size: 13) ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        view.font = NSFont(name: fontName, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        view.backgroundColor = .black; view.textColor = .white; view.insertionPointColor = .white
+        view.textContainerInset = NSSize(width: 2, height: 0)
         view.isAutomaticQuoteSubstitutionEnabled = false; view.isAutomaticDashSubstitutionEnabled = false
         view.isVerticallyResizable = true; view.isHorizontallyResizable = false
         view.autoresizingMask = [.width]; view.textContainer?.widthTracksTextView = true
-        view.minSize = NSSize(width: 0, height: 70)
+        view.minSize = NSSize(width: 0, height: 0)
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.string = text; view.delegate = context.coordinator; scroll.documentView = view
         return scroll
@@ -214,6 +268,12 @@ struct DialogueTextEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let view = scroll.documentView as? NSTextView else { return }
+        let scalars = view.string.unicodeScalars
+        let position = scalars.index(scalars.startIndex, offsetBy: min(caret, scalars.count))
+        let utf16Position = NSRange(view.string.startIndex..<position, in: view.string).length
+        if view.selectedRange().length == 0 && view.selectedRange().location != utf16Position {
+            context.coordinator.updating = true; view.setSelectedRange(NSRange(location: utf16Position, length: 0)); context.coordinator.updating = false
+        }
         if view.string != text {
             context.coordinator.updating = true; view.string = text; context.coordinator.updating = false
         }

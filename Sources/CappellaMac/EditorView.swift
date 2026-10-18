@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import CappellaCore
 
 private enum EditorPanel: String, Identifiable {
-    case roles, importRoles, properties, find, timecode, shift, timestamp, positions, preferences, validation
+    case shotDetection, chooseRole, roles, importRoles, properties, find, timecode, shift, timestamp, positions, preferences, validation
     var id: String { rawValue }
 }
 
@@ -14,9 +14,21 @@ struct EditorView: View {
     @Binding var project: Project
     @StateObject private var transport = Transport()
     @StateObject private var projection = ProjectionController()
+    @StateObject private var recorder = AudioRecorder()
+    @State private var shotTask: Task<Void, Never>?
+    @State private var shotProgress = 0.0
+    @State private var shotThreshold = 0.25
+    @State private var detectingShots = false
     @State private var selection: UUID?
     @State private var selectedSign: UUID?
     @State private var editingPhrase = false
+    @State private var originalPhrase: Cue?
+    @State private var newPhrase = false
+    @State private var chosenRole: UUID?
+    @State private var pendingKind = "in_open"
+    @State private var pendingText = ""
+    @State private var assigningExisting = false
+    @State private var pendingEdit = true
     @State private var currentTrack = 0
     @State private var caret = 0
     @State private var detectionMode = false
@@ -46,7 +58,6 @@ struct EditorView: View {
                 HSplitView {
                     VStack(spacing: 0) {
                         scriptPane
-                        if editingPhrase, let cue = selectedCue { phraseEditor(cue).padding(8).background(Color(white: 0.94)) }
                         cartouche
                     }
                     .frame(minWidth: 310, idealWidth: geometry.size.width * 0.445, maxWidth: .infinity, maxHeight: .infinity)
@@ -56,8 +67,13 @@ struct EditorView: View {
                            showGrid: showGrid, showDetection: showDetection, selectedSign: selectedSign,
                            seek: { target, track in
                                currentTrack = track; selectedSign = nil; seek(to: target)
-                               if let cue = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target }) { selection = cue.id }
+                               selection = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target })?.id
                            }, moveSign: moveSign)
+                    .overlay(alignment: .topLeading) {
+                        if editingPhrase, let cue = selectedCue {
+                            timelineEditor(cue)
+                        }
+                    }
                     .frame(height: rythmoHeight)
             }
         }
@@ -65,17 +81,19 @@ struct EditorView: View {
         .preferredColorScheme(.light)
         .background(EditorKeyboardMonitor(perform: perform).frame(width: 0, height: 0))
         .focusedSceneValue(\.editorActions, EditorActions(perform: perform, hasSelection: selection != nil, hasSign: selectedSign != nil,
-                                                        showGrid: showGrid, showDetection: showDetection, detectionMode: detectionMode))
+                                                        showGrid: showGrid, showDetection: showDetection, recording: recorder.recording, usingVI: transport.usingVI, detectionMode: detectionMode))
         .onAppear {
             for index in project.cues.indices where project.cues[index].signs == nil { project.cues[index].signs = project.cues[index].anchors }
             if let position = project.lastPositionFrame { seek(to: position) }
+            if let path = project.videoPath, FileManager.default.fileExists(atPath: path) { transport.open(URL(fileURLWithPath: path), sound: validSoundURL) }
+            else if let sound = validSoundURL { transport.openSound(sound) }
             StartupSmokeCheck.recordEditorAppearance(cueCount: project.cues.count)
         }
-        .onDisappear { transport.setRate(0); projection.close() }
+        .onDisappear { transport.setRate(0); projection.close(); shotTask?.cancel() }
         .sheet(item: $panel) { activePanel in panelView(activePanel) }
-        .alert("Cappella", isPresented: Binding(get: { error != nil || transport.error != nil }, set: {
-            if !$0 { error = nil; transport.error = nil }
-        })) { Button("OK") { error = nil; transport.error = nil } } message: { Text(error ?? transport.error ?? "") }
+        .alert("Cappella", isPresented: Binding(get: { error != nil || transport.error != nil || recorder.error != nil }, set: {
+            if !$0 { error = nil; transport.error = nil; recorder.error = nil }
+        })) { Button("OK") { error = nil; transport.error = nil; recorder.error = nil } } message: { Text(error ?? transport.error ?? recorder.error ?? "") }
     }
 
     private var scriptPane: some View {
@@ -99,7 +117,7 @@ struct EditorView: View {
                         .contextMenu {
                             Button("Modifier la phrase") { select(cue, edit: true) }
                             Menu("Changer de piste") {
-                                ForEach(0..<4) { track in Button("Piste \(track + 1)") { selection = cue.id; perform(.track(track)) } }
+                                ForEach(0..<4) { track in Button("Piste \(track + 1)") { selection = cue.id; perform(.moveTrack(track)) } }
                             }
                             Button("Voix off") { selection = cue.id; perform(.voiceOff) }
                             Button("Supprimer", role: .destructive) { selection = cue.id; perform(.deletePhrase) }
@@ -128,6 +146,9 @@ struct EditorView: View {
                         .frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 }
             }
+        }
+        .overlay {
+            if transport.preparingAudio { ProgressView("Préparation des pistes audio…").padding(14).background(.regularMaterial).cornerRadius(8) }
         }
         .contextMenu { Button("Ouvrir l'image…") { perform(.openMedia) } }
     }
@@ -175,36 +196,62 @@ struct EditorView: View {
         return (loops[index], end, max(0, end - loops[index].frame))
     }
 
-    private func phraseEditor(_ cue: Cue) -> some View {
-        VStack(spacing: 5) {
-            HStack {
-                Picker("Rôle", selection: Binding(get: { selectedCue?.roleID }, set: { value in mutateSelected { $0.roleID = value } })) {
-                    Text("Sans rôle").tag(Optional<UUID>.none)
-                    ForEach(project.roles) { Text($0.name).tag(Optional($0.id)) }
-                }.labelsHidden()
-                Picker("Piste", selection: Binding(get: { selectedCue?.track ?? 0 }, set: { value in mutateSelected { $0.track = value }; currentTrack = value })) {
-                    ForEach(0..<4) { Text("Piste \($0 + 1)").tag($0) }
-                }.labelsHidden().frame(width: 85)
-                Button { editingPhrase = false } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
-            }
-            DialogueTextEditor(text: Binding(get: { project.cues.first { $0.id == cue.id }?.text ?? "" }, set: { value in
-                if let index = project.cues.firstIndex(where: { $0.id == cue.id }) { project.cues[index].replaceText(value) }
-            }), caret: $caret).frame(height: 70).id(cue.id)
-            HStack {
-                Text(Timecode.format(cue.start, fps: project.framesPerSecond)).monospacedDigit()
-                Button("Début ici") { setBoundary(start: true, kind: nil) }
-                Spacer()
-                Text(Timecode.format(cue.end, fps: project.framesPerSecond)).monospacedDigit()
-                Button("Fin ici") { setBoundary(start: false, kind: nil) }
-            }.font(.system(size: 10))
+    private func timelineEditor(_ cue: Cue) -> some View {
+        GeometryReader { geometry in
+            let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
+            let left = max(0, geometry.size.width / 2 + CGFloat(cue.start - frame) * scale)
+            let right = min(geometry.size.width, geometry.size.width / 2 + CGFloat(cue.end - frame) * scale)
+            DialogueTextEditor(text: Binding(get: { selectedCue?.text ?? "" }, set: { value in
+                mutateSelected { $0.editText(value) }
+            }), caret: $caret, fontName: fontName, fontSize: fontSize)
+                .frame(width: max(80, right - left), height: geometry.size.height / 4 - 2)
+                .offset(x: left, y: CGFloat(cue.track) * geometry.size.height / 4 + 1)
+                .id(cue.id)
         }
     }
 
     @ViewBuilder private func panelView(_ active: EditorPanel) -> some View {
         switch active {
+        case .shotDetection:
+            VStack(alignment: .leading, spacing: 15) {
+                Text("Détection des changements de plan").font(.headline)
+                Picker("Type de programme", selection: $shotThreshold) {
+                    Text("Prises de vues réelles").tag(0.25)
+                    Text("Dessin animé").tag(0.40)
+                }.disabled(detectingShots)
+                HStack { Text("Seuil"); Slider(value: $shotThreshold, in: 0.05...0.75).disabled(detectingShots); Text(shotThreshold.formatted(.number.precision(.fractionLength(2)))) }
+                if detectingShots { ProgressView(value: shotProgress) }
+                Text("Les plans détectés remplaceront les repères de plan actuels après l'analyse.").font(.caption)
+                HStack {
+                    Button("Annuler") { shotTask?.cancel(); detectingShots = false; panel = nil }.keyboardShortcut(.cancelAction)
+                    Spacer(); Button("Lancer", action: detectShots).disabled(detectingShots).keyboardShortcut(.defaultAction)
+                }
+            }.padding(20).frame(width: 480).interactiveDismissDisabled(detectingShots)
         case .roles: RolesPanel(project: $project)
         case .importRoles: RoleImportPanel(project: $project, candidates: rolesToImport)
-        case .properties: PropertiesPanel(project: $project)
+        case .properties: PropertiesPanel(project: $project, applyFiles: { old in
+            if old.videoPath != project.videoPath, let path = project.videoPath {
+                transport.open(URL(fileURLWithPath: path), sound: validSoundURL)
+            } else if old.audioPath != project.audioPath, let sound = validSoundURL { transport.openSound(sound) }
+        })
+        case .chooseRole:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Attribuer la phrase à un rôle").font(.headline)
+                List(project.roles, selection: $chosenRole) { role in
+                    Text(role.name).foregroundStyle(roleDisplayColor(role)).tag(role.id)
+                        .onTapGesture(count: 2) { chosenRole = role.id; confirmRole() }
+                }
+                HStack {
+                    Button("Nouveau…") {
+                        if let name = prompt("Nom du rôle", initial: ""), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                           !project.roles.contains(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                            let role = Role(name: name, color: project.roles.count); project.roles.append(role); chosenRole = role.id
+                        }
+                    }
+                    Button("Annuler") { panel = nil }.keyboardShortcut(.cancelAction)
+                    Spacer(); Button("OK", action: confirmRole).keyboardShortcut(.defaultAction).disabled(chosenRole == nil)
+                }
+            }.padding(18).frame(width: 380, height: 360)
         case .find:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Rechercher").font(.headline)
@@ -257,13 +304,15 @@ struct EditorView: View {
 
     private func perform(_ action: EditorAction) {
         switch action {
+        case .recordAudio: recorder.toggle()
+        case .detectShots: panel = .shotDetection
         case .openMedia: chooseMedia(audio: false)
         case .openVI: chooseMedia(audio: true)
         case .importDetX: importDetX()
         case .importRoles:
             let picker = NSOpenPanel(); picker.allowedContentTypes = [.detx, .xml]
             guard picker.runModal() == .OK, let url = picker.url else { return }
-            do { rolesToImport = try DetX.read(Data(contentsOf: url), fps: project.framesPerSecond).roles; panel = .importRoles }
+            do { rolesToImport = try DetX.read(Data(contentsOf: url), fps: project.framesPerSecond).roles; if project.metadata == nil { project.metadata = [:] }; project.metadata?["roles-file"] = url.path; panel = .importRoles }
             catch { self.error = error.localizedDescription }
         case .exportDetX: exportData(type: .detx, name: "\(project.title).detx") { try DetX.write(project) }
         case .exportScript:
@@ -272,7 +321,9 @@ struct EditorView: View {
                 return try text.data(from: NSRange(location: 0, length: text.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
             }
         case .exportCrossTable: exportData(type: .commaSeparatedText, name: "Croisille.csv") { Data(project.crossTableCSV().utf8) }
-        case .roles: panel = .roles
+        case .roles:
+            if editingPhrase { assigningExisting = true; chosenRole = selectedCue?.roleID; panel = .chooseRole }
+            else { panel = .roles }
         case .properties: panel = .properties
         case .find: panel = .find
         case .goTimecode: input = Timecode.format(frame, fps: project.framesPerSecond); panel = .timecode
@@ -283,17 +334,54 @@ struct EditorView: View {
         case .playPause: transport.toggle()
         case .stop: transport.setRate(0); project.lastPositionFrame = frame
         case .step(let amount): transport.setRate(0); seek(to: frame + amount)
-        case .rate(let value): transport.setRate(value)
+        case .rate(let value): transport.setRate(transport.rate == value ? 0 : value)
         case .navigate(let type, let direction): navigate(type, direction: direction)
-        case .addPhrase: addPhrase(kind: "in_open")
+        case .copyPhrase: copyPhrase(cut: false)
+        case .cutPhrase: copyPhrase(cut: true)
+        case .pastePhrase: pastePhrase()
+        case .jumpAnchor(let direction):
+            guard let cue = selectedCue else { return }
+            let signs = cue.anchors
+            let next = direction > 0 ? signs.first(where: { $0.textOffset > caret }) : signs.last(where: { $0.textOffset < caret })
+            if let next { caret = next.textOffset; selectedSign = next.id; seek(to: next.frame) }
+        case .addPhrase: pendingEdit = true; addPhrase(kind: "in_open")
         case .deletePhrase:
             if let id = selection { project.cues.removeAll { $0.id == id } }
             selection = nil; selectedSign = nil; editingPhrase = false
-        case .track(let value): currentTrack = value; mutateSelected { $0.track = value }
+        case .track(let value):
+            if editingPhrase { finishPhrase() }
+            currentTrack = min(3, max(0, value))
+            selection = project.cues.last(where: { $0.track == currentTrack && $0.start <= frame && $0.end >= frame })?.id
+            selectedSign = nil
+        case .moveTrack(let value):
+            guard let cue = selectedCue, !project.cues.contains(where: { $0.id != cue.id && $0.track == value && $0.start < cue.end && $0.end > cue.start }) else { NSSound.beep(); return }
+            currentTrack = value; mutateSelected { $0.track = value }
+        case .relativeTrack(let delta): perform(.track(currentTrack + delta))
+        case .findNext: findNext()
+        case .cancelPhrase: cancelPhrase()
+        case .reaction(let text):
+            if newPhrase, selectedCue?.text == text { setBoundary(start: false, kind: "out_open"); finishPhrase() }
+            else { pendingText = text; pendingEdit = false; addPhrase(kind: "in_open") }
+        case .detachSigns:
+            mutateSelected { cue in
+                var signs = cue.anchors
+                for i in signs.indices { signs[i].textOffset = Int((Double(signs[i].frame - cue.start) / Double(cue.end - cue.start) * Double(cue.text.unicodeScalars.count)).rounded()) }
+                cue.signs = signs
+            }
+        case .shiftAnchor(let delta):
+            mutateSelected { cue in
+                var signs = cue.anchors
+                guard let i = signs.firstIndex(where: { $0.id == selectedSign }), i > 0, i < signs.count - 1 else { return }
+                signs[i].textOffset = min(signs[i+1].textOffset, max(signs[i-1].textOffset, signs[i].textOffset + delta)); cue.signs = signs
+            }
         case .mode:
-            detectionMode.toggle()
-            if detectionMode { addPhrase(kind: "in_open") }
-            else if selectedCue != nil { setBoundary(start: false, kind: "out_open") }
+            if editingPhrase {
+                if newPhrase && frame > (selectedCue?.start ?? frame) { setBoundary(start: false, kind: "out_open") }
+                finishPhrase()
+            } else if let cue = project.cues.last(where: { $0.track == currentTrack && $0.start <= frame && $0.end >= frame }) {
+                selection = cue.id; if !newPhrase { originalPhrase = cue }
+                editingPhrase = true; detectionMode = false
+            } else { pendingEdit = true; addPhrase(kind: "in_open") }
         case .addSign(let kind): addSign(kind)
         case .deleteSign:
             guard let cue = selectedCue, let id = selectedSign, let index = cue.anchors.firstIndex(where: { $0.id == id }) else { return }
@@ -338,18 +426,44 @@ struct EditorView: View {
     private func select(_ cue: Cue, edit: Bool) {
         selection = cue.id; currentTrack = cue.track; selectedSign = nil
         seek(to: cue.start)
-        if edit { editingPhrase = true; caret = 0 }
+        if edit { originalPhrase = cue; newPhrase = false; editingPhrase = true; detectionMode = false; caret = 0 }
     }
     private func addPhrase(kind: String) {
-        guard let role = selectedCue?.roleID ?? project.roles.first?.id else { panel = .roles; return }
-        var cue = Cue(roleID: role, start: frame, end: frame + 3 * project.framesPerSecond)
-        cue.track = currentTrack; cue.signs = cue.anchors; cue.signs?[0].kind = kind
-        project.cues.append(cue); selection = cue.id; editingPhrase = true; caret = 0; selectedSign = nil
+        transport.setRate(0)
+        assigningExisting = false; pendingKind = kind; chosenRole = selectedCue?.roleID ?? project.roles.first?.id
+        panel = .chooseRole
+    }
+    private func confirmRole() {
+        guard let role = chosenRole else { return }
+        if assigningExisting { mutateSelected { $0.roleID = role }; assigningExisting = false; panel = nil; return }
+        guard !project.cues.contains(where: { $0.track == currentTrack && $0.start <= frame && $0.end > frame }) else {
+            error = "Une phrase occupe déjà cette position sur la piste."; return
+        }
+        var cue = Cue(roleID: role, start: frame, end: frame + 3 * project.framesPerSecond, text: pendingText)
+        let nextPhrase = project.cues.filter { $0.track == currentTrack && $0.start > frame }.map(\.start).min()
+        let nextLoop = project.loops.filter { $0.frame > frame }.map(\.frame).min()
+        cue.end = min(cue.end, nextPhrase ?? cue.end, nextLoop ?? cue.end)
+        cue.track = currentTrack; cue.signs = cue.anchors; cue.signs?[0].kind = pendingKind
+        project.cues.append(cue); selection = cue.id; selectedSign = nil
+        originalPhrase = nil; newPhrase = true; editingPhrase = pendingEdit; detectionMode = !pendingEdit
+        caret = cue.text.unicodeScalars.count; pendingText = ""; panel = nil
+    }
+    private func finishPhrase() {
+        editingPhrase = false; detectionMode = true; originalPhrase = nil; newPhrase = false
+        NSApplication.shared.keyWindow?.makeFirstResponder(nil)
+    }
+    private func cancelPhrase() {
+        if newPhrase { project.cues.removeAll { $0.id == selection }; selection = nil }
+        else if let originalPhrase, let index = project.cues.firstIndex(where: { $0.id == originalPhrase.id }) { project.cues[index] = originalPhrase }
+        finishPhrase()
     }
     private func setBoundary(start: Bool, kind: String?) {
         guard let index = project.cues.firstIndex(where: { $0.id == selection }) else { return }
         do {
-            try project.cues[index].setBounds(start: start ? frame : project.cues[index].start, end: start ? project.cues[index].end : frame)
+            guard (start ? frame < project.cues[index].end : frame > project.cues[index].start) else { throw ProjectError.invalid("La fin doit suivre le début.") }
+            let signs = project.cues[index].anchors
+            let boundary = signs[start ? 0 : signs.count - 1]
+            Timeline.moveSign(in: &project.cues[index], id: boundary.id, to: frame)
             if let kind {
                 var signs = project.cues[index].anchors
                 signs[start ? 0 : signs.count - 1].kind = kind; project.cues[index].signs = signs
@@ -357,8 +471,8 @@ struct EditorView: View {
         } catch { self.error = error.localizedDescription }
     }
     private func addSign(_ kind: String) {
-        if kind.hasPrefix("in_") { addPhrase(kind: kind); return }
-        if kind.hasPrefix("out_") { setBoundary(start: false, kind: kind); return }
+        if kind.hasPrefix("in_") { pendingEdit = false; addPhrase(kind: kind); return }
+        if kind.hasPrefix("out_") { setBoundary(start: false, kind: kind); finishPhrase(); return }
         guard let index = project.cues.firstIndex(where: { $0.id == selection }) else { return }
         do {
             let offset = editingPhrase ? min(caret, project.cues[index].text.unicodeScalars.count) : Timeline.textOffset(in: project.cues[index], at: frame)
@@ -415,11 +529,59 @@ struct EditorView: View {
             panel = nil
         } catch { self.error = error.localizedDescription }
     }
+    private func detectShots() {
+        guard let path = project.videoPath, FileManager.default.fileExists(atPath: path) else { error = "Ouvrez d'abord le fichier image."; return }
+        transport.setRate(0); detectingShots = true; shotProgress = 0
+        let url = URL(fileURLWithPath: path), fps = project.framesPerSecond, threshold = shotThreshold
+        let origin = project.mediaStartFrame
+        shotTask = Task {
+            do {
+                let worker = Task.detached {
+                    try await ShotDetector.detect(url: url, fps: fps, threshold: threshold) { value in
+                        Task { @MainActor in shotProgress = value }
+                    }
+                }
+                let frames = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+                guard !Task.isCancelled else { return }
+                project.shots = frames.enumerated().map { Marker(frame: origin + $0.element, label: String($0.offset + 1)) }
+                detectingShots = false; panel = nil
+            } catch is CancellationError { detectingShots = false }
+            catch { detectingShots = false; self.error = error.localizedDescription }
+        }
+    }
+    private var validSoundURL: URL? {
+        guard let path = project.audioPath, FileManager.default.fileExists(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+    private func copyPhrase(cut: Bool) {
+        guard let cue = selectedCue, let data = try? JSONEncoder().encode(cue) else { return }
+        let board = NSPasteboard.general; board.clearContents()
+        board.setData(data, forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase"))
+        board.setString(cue.text, forType: .string)
+        if cut { perform(.deletePhrase) }
+    }
+    private func pastePhrase() {
+        guard let data = NSPasteboard.general.data(forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase")),
+              var cue = try? JSONDecoder().decode(Cue.self, from: data) else { return }
+        let delta = frame - cue.start
+        var signs = cue.anchors
+        cue.id = UUID(); cue.sourceIndex = nil; cue.track = currentTrack
+        cue.start += delta; cue.end += delta
+        for i in signs.indices { signs[i].id = UUID(); signs[i].sourceIndex = nil; signs[i].frame += delta }
+        cue.signs = signs
+        guard !project.cues.contains(where: { $0.track == currentTrack && $0.start < cue.end && $0.end > cue.start }),
+              !project.loops.contains(where: { $0.frame > cue.start && $0.frame < cue.end }) else { NSSound.beep(); return }
+        if !project.roles.contains(where: { $0.id == cue.roleID }) { cue.roleID = project.roles.first?.id }
+        var candidate = project; candidate.cues.append(cue)
+        guard (try? candidate.validate()) != nil else { NSSound.beep(); return }
+        project = candidate; selection = cue.id; chosenRole = cue.roleID
+        originalPhrase = nil; newPhrase = false; assigningExisting = true; panel = .chooseRole
+    }
     private func chooseMedia(audio: Bool) {
         let picker = NSOpenPanel(); picker.allowedContentTypes = audio ? [.audio] : [.movie]; picker.allowsMultipleSelection = false
         guard picker.runModal() == .OK, let url = picker.url else { return }
-        if audio { transport.openVI(url); project.audioPath = url.path }
-        else { transport.open(url); project.videoPath = url.path }
+        if audio { transport.openSound(url); project.audioPath = url.path }
+        else { transport.open(url, sound: validSoundURL); project.videoPath = url.path }
     }
     private func importDetX() {
         if !project.cues.isEmpty {
