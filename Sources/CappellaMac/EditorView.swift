@@ -172,6 +172,8 @@ struct EditorView: View {
 
     private var cartouche: some View {
         GeometryReader { geometry in
+            let dark = appearance == "dark"
+            let mutedInk = dark ? Color(white: 0.70) : Color.gray
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
@@ -193,16 +195,16 @@ struct EditorView: View {
                             Text("\(Timecode.format(loop.marker.frame, fps: project.framesPerSecond)) → \(Timecode.format(loop.end, fps: project.framesPerSecond))")
                         }
                         Spacer()
-                        Button("VO") { if transport.usingVI { transport.toggleVI() } }.foregroundColor(!transport.usingVI ? .white : .gray)
-                        Button("VI") { if !transport.usingVI { transport.toggleVI() } }.foregroundColor(transport.usingVI ? .white : .gray)
+                        Button("VO") { if transport.usingVI { transport.toggleVI() } }.foregroundColor(!transport.usingVI ? .white : mutedInk)
+                        Button("VI") { if !transport.usingVI { transport.toggleVI() } }.foregroundColor(transport.usingVI ? .white : mutedInk)
                         Spacer()
-                    }.font(.system(size: 10)).foregroundStyle(Color(red: 0.43, green: 0.53, blue: 0.59)).buttonStyle(.plain)
+                    }.font(.system(size: 10)).foregroundStyle(dark ? Color(white: 0.78) : Color(red: 0.43, green: 0.53, blue: 0.59)).buttonStyle(.plain)
                 }
                 .padding(.horizontal, 7).padding(.vertical, 7).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .foregroundStyle(.white).background(Color(red: 0.14, green: 0.17, blue: 0.20))
-                Color(white: 0.93).frame(width: geometry.size.width * 0.19)
+                .foregroundStyle(.white).background(dark ? Color(white: 0.09) : Color(red: 0.14, green: 0.17, blue: 0.20))
+                (dark ? Color(white: 0.13) : Color(white: 0.93)).frame(width: geometry.size.width * 0.19)
             }
-        }.frame(height: 92).overlay(alignment: .top) { Rectangle().fill(Color.gray).frame(height: 0.5) }
+        }.frame(height: 92).overlay(alignment: .top) { Rectangle().fill(appearance == "dark" ? Color.white.opacity(0.18) : Color.gray).frame(height: 0.5) }
     }
 
     private var currentLoop: (marker: Marker, end: Int, duration: Int)? {
@@ -255,7 +257,7 @@ struct EditorView: View {
                 Text("Attribuer la phrase à un rôle").font(.headline)
                 HStack(alignment: .top, spacing: 16) {
                     List(project.roles, selection: $chosenRole) { role in
-                        Text(role.name).foregroundStyle(roleDisplayColor(role)).tag(role.id)
+                        Text(role.name).foregroundStyle(roleReadingColor(role, dark: appearance == "dark")).tag(role.id)
                             .onTapGesture(count: 2) { chosenRole = role.id; confirmRole() }
                     }.frame(minWidth: 240)
                     VStack(spacing: 10) {

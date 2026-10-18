@@ -256,3 +256,16 @@ func roleDisplayColor(_ role: Role) -> Color {
     }
     return roleColor(role.color)
 }
+
+/// Adapt ink for reading on the dark band without changing the saved role
+/// color (the inspector's color picker must still show the original value).
+func roleReadingColor(_ role: Role?, dark: Bool) -> Color {
+    let original = role.map(roleDisplayColor) ?? .black
+    guard dark else { return original }
+    guard let rgb = NSColor(original).usingColorSpace(.sRGB) else { return .white }
+    let brightest = max(rgb.redComponent, max(rgb.greenComponent, rgb.blueComponent))
+    let darkest = min(rgb.redComponent, min(rgb.greenComponent, rgb.blueComponent))
+    if brightest - darkest < 0.08 || brightest < 0.35 { return .white }
+    // Retain the hue of colored roles, but give their text lighter ink.
+    return Color(nsColor: rgb.blended(withFraction: 0.45, of: .white) ?? rgb)
+}

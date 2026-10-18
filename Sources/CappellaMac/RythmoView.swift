@@ -66,7 +66,7 @@ struct RythmoView: View {
                     guard end >= 0, begin <= size.width else { continue }
                     let y = (CGFloat(cue.track) + 0.5) * laneHeight
                     let role = project.roles.first { $0.id == cue.roleID }
-                    let color = role.map(roleDisplayColor) ?? (appearance == "dark" ? .white : .black)
+                    let color = roleReadingColor(role, dark: appearance == "dark")
                     var laneContext = context
                     laneContext.clip(to: Path(CGRect(x: 0, y: CGFloat(cue.track) * laneHeight, width: size.width, height: laneHeight)))
                     for segment in Timeline.segments(cue) where cue.id != editingCue {
@@ -104,7 +104,7 @@ struct RythmoView: View {
                             } else {
                                 path.move(to: CGPoint(x: x, y: bottom - 14)); path.addLine(to: CGPoint(x: x, y: bottom))
                                 context.stroke(path, with: .color(color), lineWidth: 2)
-                                context.draw(Text(sign.kind.uppercased()).font(.system(size: 7)).foregroundColor(.black), at: CGPoint(x: x + 3, y: bottom - 9), anchor: .leading)
+                                context.draw(Text(sign.kind.uppercased()).font(.system(size: 7)).foregroundColor(appearance == "dark" ? .white : .black), at: CGPoint(x: x + 3, y: bottom - 9), anchor: .leading)
                             }
                             if sign.id == selectedSign {
                                 context.stroke(Path(CGRect(x: x - 7, y: bottom - 17, width: 14, height: 18)), with: .color(.blue), lineWidth: 1)
