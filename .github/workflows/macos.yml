@@ -1,0 +1,25 @@
+name: Native macOS ARM64
+on:
+  workflow_dispatch:
+  push:
+    paths: ['Sources/**', 'Tests/**', 'Package.swift', 'packaging/**', 'scripts/**', '.github/workflows/macos.yml']
+  pull_request:
+    paths: ['Sources/**', 'Tests/**', 'Package.swift', 'packaging/**', 'scripts/**', '.github/workflows/macos.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Apple Silicon host
+        run: test "$(uname -m)" = arm64
+      - name: Unit tests
+        run: swift test --arch arm64
+      - name: Build and package native app
+        run: bash scripts/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CappellaMac-arm64
+          path: dist/CappellaMac-arm64.zip
+          if-no-files-found: error

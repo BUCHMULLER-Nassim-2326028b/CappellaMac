@@ -1,0 +1,914 @@
+[
+  {
+    "resource": 146,
+    "depth": 0,
+    "id": null,
+    "label": "Balise"
+  },
+  {
+    "resource": 146,
+    "depth": 1,
+    "id": 32995,
+    "label": "Supprimer"
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "&Fichier"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57600,
+    "label": "&Nouveau\tCtrl+N"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57601,
+    "label": "&Ouvrir...\tCtrl+O"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40119,
+    "label": "Ouvrir une sauvegarde..."
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57603,
+    "label": "&Enregistrer\tCtrl+S"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57604,
+    "label": "Enregistrer &sous...\tCtrl+Maj+S"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40085,
+    "label": "Enregistrer une copie sous...\tCtrl+Alt+S"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": null,
+    "label": "&Importer"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40078,
+    "label": "Détection..."
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40083,
+    "label": "Liste de rôles..."
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": null,
+    "label": "E&xporter"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40020,
+    "label": "Script et croisillé...\tCtrl+E"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40021,
+    "label": "Sous-titrage UER...\tCtrl+Maj+E"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40016,
+    "label": "Ou&vrir l'image...\tCtrl+Maj+V"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40023,
+    "label": "&Propriétés\tCtrl+P"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57616,
+    "label": "Fichier récent"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57665,
+    "label": "&Quitter"
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "&Edition"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57643,
+    "label": "&Annuler\tCtrl+Z"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57635,
+    "label": "&Couper\tCtrl+X"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57634,
+    "label": "C&opier\tCtrl+C"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57637,
+    "label": "Co&ller\tCtrl+V"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57642,
+    "label": "Sélectionner tout\tCtrl+A"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57636,
+    "label": "&Rechercher...\tCtrl+F"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": null,
+    "label": "&Piste"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 33035,
+    "label": "Piste suivante\tCtrl+Bas"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 33034,
+    "label": "Piste précédente\tCtrl+Haut"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32841,
+    "label": "Piste 1\tF5"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32842,
+    "label": "Piste 2\tF6"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32843,
+    "label": "Piste 3\tF7"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32844,
+    "label": "Piste 4\tF8"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": null,
+    "label": "Ajouter un signe"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32869,
+    "label": "Début de phrase ouverte\tEntrée/2"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32870,
+    "label": "Fin de phrase ouverte\tEntrée/3"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32872,
+    "label": "Début de phrase fermée\tCtrl+Entrée/Ctrl+2"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32873,
+    "label": "Fin de phrase fermée\tCtrl+Entrée/Ctrl+3"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32862,
+    "label": "Labiale m,b,p\t4"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32863,
+    "label": "Demi-labiale f,v,r\t5"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32858,
+    "label": "Neutre\t6"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32859,
+    "label": "Voyelle A\t7"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32861,
+    "label": "Voyelle I\tCtrl+6"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32860,
+    "label": "Voyelle O\t8"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32864,
+    "label": "Cul de poule w, eu, que\t9"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32875,
+    "label": "Boucle\t0"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 32877,
+    "label": "Changement de plan\t1"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33048,
+    "label": "Déplacer le signe à gauche\tCtrl+Gauche"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33049,
+    "label": "Déplacer le signe à droite\tCtrl+Droite"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32993,
+    "label": "Supprimer le signe\tSuppr"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33043,
+    "label": "&Décrocher tous les signes\tCtrl+Maj+D"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40015,
+    "label": "Mode Édition/Mode Détection\tEntrée"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40017,
+    "label": "Annuler la phrase\tEsc"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40042,
+    "label": "Supprimer la phrase \tCtrl+Suppr"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": null,
+    "label": "Déplacer la phrase"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 33014,
+    "label": "Piste 1\tCtrl+F5"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 33015,
+    "label": "Piste 2\tCtrl+F6"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 33016,
+    "label": "Piste 3\tCtrl+F7"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 33017,
+    "label": "Piste 4\tCtrl+F8"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32937,
+    "label": "Voix off\tCtrl+U"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40018,
+    "label": "Rôles...\tCtrl+R"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33040,
+    "label": "Détection des changements de plan..."
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33025,
+    "label": "Vérifier\tF4"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40108,
+    "label": "Décaler la rythmo..."
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40077,
+    "label": "Préférences..."
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "&Contrôle"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40005,
+    "label": "&Lecture/Pause\tEspace"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40156,
+    "label": "Lecture avant\tHaut"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32879,
+    "label": "Lecture &inverse\tBas"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40008,
+    "label": "&Stop"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40003,
+    "label": "Image sui&vante\tAlt+Droite"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40004,
+    "label": "Image &précédente\tAlt+Gauche"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40064,
+    "label": "Jog avant"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40063,
+    "label": "Jog arrière"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": null,
+    "label": "Shu&ttle"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40046,
+    "label": "Arrière x10"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40047,
+    "label": "Arrière x3"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40048,
+    "label": "Arrière x1"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40049,
+    "label": "Arrière x0.75"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40050,
+    "label": "Arrière x0.5"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40051,
+    "label": "Arrière x0.25"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40052,
+    "label": "Arrière x0.125"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40053,
+    "label": "Avant x0.125"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40054,
+    "label": "Avant x0.25"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40055,
+    "label": "Avant x0.5"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40056,
+    "label": "Avant x0.75"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40057,
+    "label": "Avant x1"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40058,
+    "label": "Avant x3"
+  },
+  {
+    "resource": 201,
+    "depth": 2,
+    "id": 40059,
+    "label": "Avant x10"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40045,
+    "label": "Signe précédent\tGauche"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40044,
+    "label": "Signe suivant\tDroite"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40014,
+    "label": "Phrase précédente\tTab/F9"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40013,
+    "label": "Phrase suivante\tMaj+Tab/F10"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40162,
+    "label": "Phrase précédente de ce rôle\tCtrl+F9"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40163,
+    "label": "Phrase suivante de ce rôle\tCtrl+F10"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32999,
+    "label": "Boucle précédente\tF11"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32998,
+    "label": "Boucle suivante\tF12"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40097,
+    "label": "Changer le timestamp..."
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 404,
+    "label": "Machine Orphée..."
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "Position"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40007,
+    "label": "Aller au timecode... \tCtrl+G"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40150,
+    "label": "Marquer cette position...\tCtrl+D"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40153,
+    "label": "Supprimer une position..."
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "&Affichage"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40094,
+    "label": "Détection\tCtrl+Alt+F9"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40095,
+    "label": "Grille et Signes\tCtrl+Alt+F10"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32886,
+    "label": "&Plein écran\tAlt+Entrée"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32845,
+    "label": "&Zoom avant\tPlus"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 32846,
+    "label": "Zoom &arrière\tMoins"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40065,
+    "label": "Désentrelacer"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40066,
+    "label": "Haute qualité"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40113,
+    "label": "Écran de contrôle"
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "Audio"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40067,
+    "label": "Passer en &VI\tF2"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40061,
+    "label": "&Monter le volume\tCtrl+Plus"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40062,
+    "label": "&Baisser le volume\tCtrl+Moins"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40060,
+    "label": "&Couper le son\tCtrl+*"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33056,
+    "label": "En&registrer"
+  },
+  {
+    "resource": 201,
+    "depth": 0,
+    "id": null,
+    "label": "&Aide"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 33006,
+    "label": "&Documentation\tF1"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40167,
+    "label": "Raccourcis clavier"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40117,
+    "label": "Page web de Cappella"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40116,
+    "label": "Rechercher des mises à jour"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 40159,
+    "label": "Notes de version"
+  },
+  {
+    "resource": 201,
+    "depth": 1,
+    "id": 57664,
+    "label": "&À propos de Cappella"
+  },
+  {
+    "resource": 238,
+    "depth": 0,
+    "id": null,
+    "label": "Phrase"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 40042,
+    "label": "&Supprimer la phrase"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": null,
+    "label": "&Changer de piste"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 33014,
+    "label": "Piste 1"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 33015,
+    "label": "Piste 2"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 33016,
+    "label": "Piste 3"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 33017,
+    "label": "Piste 4"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 40018,
+    "label": "Changer &rôle"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 32937,
+    "label": "Voix &off"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 33043,
+    "label": "&Décrocher tous les signes"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 57635,
+    "label": "Couper"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 57634,
+    "label": "Copier"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 57637,
+    "label": "Coller"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 32850,
+    "label": "Supprimer le signe"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": 32866,
+    "label": "Décrocher le signe"
+  },
+  {
+    "resource": 238,
+    "depth": 1,
+    "id": null,
+    "label": "Changer le type"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32921,
+    "label": "Ouverture bouche ouverte"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32922,
+    "label": "Ouverture bouche fermée"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32923,
+    "label": "Fermeture bouche ouverte"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32924,
+    "label": "Fermeture bouche fermée"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32910,
+    "label": "MPB"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32911,
+    "label": "FVR"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32912,
+    "label": "Weuqueu"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32913,
+    "label": "A"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32914,
+    "label": "I"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32915,
+    "label": "O"
+  },
+  {
+    "resource": 238,
+    "depth": 2,
+    "id": 32916,
+    "label": "Neutre"
+  }
+]

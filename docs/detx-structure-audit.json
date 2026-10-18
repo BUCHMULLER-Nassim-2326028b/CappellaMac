@@ -1,0 +1,48 @@
+{
+  "sha256": "720b790ec1a680d4c10d7e4e497394e400c1493e1e82c3b81f653792de7595ee",
+  "bytes": 202833,
+  "cappella_version": "3.7.0",
+  "fps_assumed_not_declared": 25,
+  "media_start_frame": 900000,
+  "counts": {
+    "detx": 1,
+    "header": 1,
+    "cappella": 1,
+    "title": 1,
+    "title2": 1,
+    "episode": 1,
+    "production": 1,
+    "detector": 1,
+    "first-author": 1,
+    "second-author": 1,
+    "notes": 1,
+    "summary": 1,
+    "videofile": 1,
+    "audiofile": 1,
+    "last_position": 1,
+    "roles": 1,
+    "role": 23,
+    "image": 19,
+    "body": 1,
+    "loop": 22,
+    "shot": 139,
+    "line": 402,
+    "lipsync": 804,
+    "text": 402
+  },
+  "tracks": {
+    "0": 189,
+    "3": 60,
+    "1": 97,
+    "2": 56
+  },
+  "line_shapes": {
+    "lipsync / text / lipsync": 402
+  },
+  "lipsync_types": {
+    "in_open": 402,
+    "out_open": 402
+  },
+  "structure_matches_implemented_profile": true,
+  "native_swift_roundtrip_verified": false
+}
