@@ -23,7 +23,7 @@ public final class ProjectSession: ObservableObject {
     @Published public private(set) var lastAutomaticSaveURL: URL?
     @Published public private(set) var automaticSaveError: String?
     public var isModified: Bool { recoveredDocument || project != savedProject }
-    public var windowTitle: String { (fileURL?.lastPathComponent ?? project.title) + " — Cappella" }
+    public var windowTitle: String { (fileURL?.lastPathComponent ?? project.title) + " - Cappella" }
 
     // Deterministic substitutes for native dialogs in the regression tests.
     enum ReplacementChoice { case save, discard, cancel }

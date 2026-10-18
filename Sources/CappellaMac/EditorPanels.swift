@@ -117,10 +117,10 @@ struct PropertiesPanel: View {
                     TextField("Titre de l'épisode", text: metadata("episode.title"))
                     TextField("Titre français de l'épisode", text: metadata("episode.title2"))
                     TextField("Auteur", text: $project.author)
-                    TextField("Second auteur — prénom", text: metadata("second-author.firstname"))
-                    TextField("Second auteur — nom", text: metadata("second-author.name"))
-                    TextField("Détecteur — prénom", text: metadata("detector.firstname"))
-                    TextField("Détecteur — nom", text: metadata("detector.name"))
+                    TextField("Second auteur - prénom", text: metadata("second-author.firstname"))
+                    TextField("Second auteur - nom", text: metadata("second-author.name"))
+                    TextField("Détecteur - prénom", text: metadata("detector.firstname"))
+                    TextField("Détecteur - nom", text: metadata("detector.name"))
                     Picker("Cadence", selection: $project.framesPerSecond) {
                         ForEach([24, 25, 30], id: \.self) { Text("\($0) i/s").tag($0) }
                     }.disabled(!project.cues.isEmpty || project.originalDetX != nil)

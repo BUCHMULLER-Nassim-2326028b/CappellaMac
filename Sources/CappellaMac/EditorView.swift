@@ -695,7 +695,7 @@ private final class ProjectionController: ObservableObject {
         if let window { window.makeKeyAndOrderFront(nil); return }
         let view = ProjectionView(project: project, transport: transport, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize)
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = "Cappella — Écran de contrôle"; window.styleMask.insert([.resizable, .miniaturizable])
+        window.title = "Cappella - Écran de contrôle"; window.styleMask.insert([.resizable, .miniaturizable])
         window.isReleasedWhenClosed = false; window.setContentSize(NSSize(width: 1000, height: 650))
         if NSScreen.screens.count > 1, let screen = NSScreen.screens.last { window.setFrame(screen.visibleFrame, display: false) }
         else { window.center() }
