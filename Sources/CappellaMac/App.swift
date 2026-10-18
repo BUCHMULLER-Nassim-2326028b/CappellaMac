@@ -39,13 +39,13 @@ struct CappellaMacApp: App {
                 Button("Raccourcis clavier") {
                     let alert = NSAlert()
                     alert.messageText = "Raccourcis clavier"
-                    alert.informativeText = "Entrée : saisir/valider directement sur la bande\nÉchap : annuler la phrase\nF2 : VO/VI\nEspace : lecture/pause\nHaut/Bas : lecture avant/arrière\nAlt+Gauche/Droite : une image\nGauche/Droite : signe précédent/suivant\nCtrl+Gauche/Droite : déplacer le signe\nCtrl+Alt+Gauche/Droite : déplacer son accroche\nF5–F8 : piste active ; Ctrl+F5–F8 : déplacer la phrase\nF9/F10 ou Tab/Maj+Tab : phrases\nF11/F12 : boucles\nF3 : recherche suivante ; F4 : vérifier\nCtrl+R : rôles ; Ctrl+F : recherche ; Ctrl+G : timecode\nCtrl+P : propriétés ; Ctrl+D : marquer une position\nCtrl+U : voix off ; Ctrl+Suppr : supprimer la phrase\nPavé numérique 0–9 : signes\nV/B/N/virgule : lecture lente\nPlus/Moins : zoom ; Ctrl+Plus/Moins : volume\nCtrl+* : couper le son\nLes commandes courantes acceptent aussi Cmd sur Mac."
+                    alert.informativeText = "Entrée : saisir/valider directement sur la bande\nÉchap : annuler la phrase\nF2 : VO/VI\nEspace : lecture/pause\nHaut/Bas : lecture avant/arrière\nAlt+Gauche/Droite : une image\nGauche/Droite : signe précédent/suivant\nCtrl+Gauche/Droite : déplacer le signe\nCtrl+Alt+Gauche/Droite : déplacer son accroche\nCtrl+Haut/Bas : piste précédente/suivante\nF5–F8 : piste active ; Ctrl+F5–F8 : déplacer la phrase\nF9/F10 ou Tab/Maj+Tab : phrases\nF11/F12 : boucles\nF3 : recherche suivante ; F4 : vérifier\nCtrl+R : rôles ; Ctrl+F : recherche ; Ctrl+G : timecode\nCtrl+P : propriétés ; Ctrl+D : marquer une position\nCtrl+U : voix off ; Ctrl+Suppr : supprimer la phrase\nPavé numérique 0–9 : signes\nV/B/N/virgule : lecture lente\nPlus/Moins : zoom ; Ctrl+Plus/Moins : volume\nCtrl+* : couper le son\nLes commandes courantes acceptent aussi Cmd sur Mac."
                     alert.runModal()
                 }
                 Button("Page web de Cappella") { NSWorkspace.shared.open(URL(string: "https://cappella.app/")!) }
                 Divider()
                 Button("Rechercher des mises à jour") {
-                    NSWorkspace.shared.open(URL(string: "https://github.com/BUCHMULLER-Nassim-2326028b/CappellaMac/releases")!)
+                    UpdateChecker.shared.check(userInitiated: true)
                 }
                 Divider()
                 Button("Notes de version") { NSWorkspace.shared.open(URL(string: "https://cappella.app/historique.html")!) }

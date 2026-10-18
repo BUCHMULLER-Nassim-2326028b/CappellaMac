@@ -30,7 +30,9 @@ struct RolesPanel: View {
                     }.padding(8)
                 }.frame(minWidth: 200)
                 if let index = project.roles.firstIndex(where: { $0.id == selected }) {
-                    RoleInspector(role: $project.roles[index]).padding().frame(minWidth: 300)
+                    ScrollView {
+                        RoleInspector(role: $project.roles[index]).padding()
+                    }.frame(minWidth: 300)
                 } else { Text("Sélectionner un rôle").foregroundStyle(.secondary).frame(width: 320) }
             }
             HStack {
@@ -41,6 +43,7 @@ struct RolesPanel: View {
                 }.keyboardShortcut(.defaultAction)
             }.padding()
         }.frame(width: 650, height: 470)
+        .onAppear { if selected == nil { selected = project.roles.first?.id } }
         .alert("Rôles", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
@@ -52,6 +55,7 @@ private struct RoleInspector: View {
     @State private var error: String?
     var body: some View {
         Form {
+            HStack { Spacer(); RolePortrait(role: role); Spacer() }
             TextField("Nom", text: $role.name)
             ColorPicker("Couleur", selection: Binding(get: { roleDisplayColor(role) }, set: { value in
                 if let rgb = NSColor(value).usingColorSpace(.sRGB) {
@@ -63,9 +67,6 @@ private struct RoleInspector: View {
             }
             Text("Description")
             TextEditor(text: Binding(get: { role.descriptionText ?? "" }, set: { role.descriptionText = $0 })).frame(height: 95)
-            if let data = role.imageData, let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().scaledToFit().frame(height: 110)
-            }
             Button("Choisir un portrait…") {
                 let panel = NSOpenPanel(); panel.allowedContentTypes = [.image]
                 guard panel.runModal() == .OK, let url = panel.url else { return }

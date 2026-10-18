@@ -8,6 +8,7 @@ struct DialogueTextEditor: NSViewRepresentable {
     @Binding var caret: Int
     var fontName = "Apple Chancery"
     var fontSize = 28.0
+    var menuProvider: (() -> NSMenu?)? = nil
 
     /// Measure the same font used by NSTextView, including space for its caret.
     /// The band editor grows with the text, independently of cue duration.
@@ -24,6 +25,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         scroll.borderType = .noBorder; scroll.drawsBackground = true; scroll.backgroundColor = .black
         scroll.hasVerticalScroller = false; scroll.hasHorizontalScroller = false
         let view = FocusedTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 40))
+        view.menuProvider = menuProvider
         view.isEditable = true; view.isSelectable = true; view.isRichText = false; view.allowsUndo = true
         view.font = NSFont(name: fontName, size: CGFloat(fontSize)) ?? .systemFont(ofSize: CGFloat(fontSize))
         view.backgroundColor = .black; view.textColor = .white; view.insertionPointColor = .white
@@ -43,6 +45,7 @@ struct DialogueTextEditor: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
+        (scroll.documentView as? FocusedTextView)?.menuProvider = menuProvider
         guard let view = scroll.documentView as? FocusedTextView, !view.hasMarkedText() else { return }
         context.coordinator.updating = true
         defer { context.coordinator.updating = false }
@@ -81,6 +84,8 @@ struct DialogueTextEditor: NSViewRepresentable {
         }
     }
     final class FocusedTextView: NSTextView {
+        var menuProvider: (() -> NSMenu?)?
+        override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() ?? super.menu(for: event) }
         private var pendingFocus = true
         private var awaitingSheetEnd = false
         private var focusScheduled = false

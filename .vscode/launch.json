@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:CappellaMac}",
+            "name": "Debug CappellaMac",
+            "target": "CappellaMac",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug CappellaMac"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:CappellaMac}",
+            "name": "Release CappellaMac",
+            "target": "CappellaMac",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release CappellaMac"
+        }
+    ]
+}

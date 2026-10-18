@@ -6,6 +6,10 @@ import CappellaSession
 final class StartupDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         FrenchMenus.install()
+        if ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_MARKER"] == nil {
+            AutomaticSaveController.shared.start()
+            if ApplicationPreferences.load().checkUpdates { UpdateChecker.shared.check() }
+        }
         DispatchQueue.main.async {
             if let path = ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_FIXTURE"] {
                 if !ProjectSession.shared.open(URL(fileURLWithPath: path)) {

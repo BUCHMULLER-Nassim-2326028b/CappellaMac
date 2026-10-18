@@ -43,6 +43,15 @@ public enum Timeline {
         return left.textOffset + Int((Double(right.textOffset - left.textOffset) * fraction).rounded())
     }
 
+    public static func detachSign(in cue: inout Cue, id: UUID) {
+        var signs = cue.anchors
+        guard let index = signs.firstIndex(where: { $0.id == id }), index > 0, index < signs.count - 1 else { return }
+        let left = signs[index - 1], right = signs[index + 1]
+        let fraction = Double(signs[index].frame - left.frame) / Double(max(1, right.frame - left.frame))
+        signs[index].textOffset = left.textOffset + Int((fraction * Double(right.textOffset - left.textOffset)).rounded())
+        cue.signs = signs
+    }
+
     public static func addSign(to cue: inout Cue, kind: String, frame: Int, textOffset: Int) throws {
         guard frame > cue.start, frame < cue.end, textOffset >= 0, textOffset <= cue.text.unicodeScalars.count else {
             throw ProjectError.invalid("Placer le signe à l'intérieur de la phrase.")

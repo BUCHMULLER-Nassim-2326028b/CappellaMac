@@ -16,7 +16,12 @@ public final class ProjectSession: ObservableObject {
     public var visibleEditorWindowCount: Int { editorWindows.allObjects.filter { $0.isVisible }.count }
     private var savedProject: Project
     private var terminating = false
-    public var isModified: Bool { project != savedProject }
+    private var recoveredDocument = false
+    private var automaticSnapshot: Project?
+    private var lastAutomaticAttempt = Date()
+    @Published public private(set) var lastAutomaticSaveURL: URL?
+    @Published public private(set) var automaticSaveError: String?
+    public var isModified: Bool { recoveredDocument || project != savedProject }
     public var windowTitle: String { (fileURL?.lastPathComponent ?? project.title) + " — Cappella" }
 
     // Deterministic substitutes for native dialogs in the regression tests.
@@ -59,15 +64,16 @@ public final class ProjectSession: ObservableObject {
         replace(with: Project(), url: nil); return true
     }
 
-    public func chooseOpen() {
+    public func chooseOpen(backup: Bool = false) {
         let picker = NSOpenPanel(); picker.allowedContentTypes = [.detx, .cappellaProject]
         picker.allowsMultipleSelection = false
+        if backup { picker.directoryURL = Self.automaticSaveDirectory; picker.title = "Ouvrir une sauvegarde" }
         guard picker.runModal() == .OK, let url = picker.url else { return }
-        open(url)
+        open(url, asRecovery: backup)
     }
 
-    @discardableResult public func open(_ url: URL) -> Bool {
-        if url.standardizedFileURL == fileURL?.standardizedFileURL { showWindow(); return true }
+    @discardableResult public func open(_ url: URL, asRecovery: Bool = false) -> Bool {
+        if !asRecovery, url.standardizedFileURL == fileURL?.standardizedFileURL { showWindow(); return true }
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
@@ -77,7 +83,10 @@ public final class ProjectSession: ObservableObject {
             if ["detx", "xml"].contains(url.pathExtension.lowercased()) { next = try DetX.read(data) }
             else { next = try Project.decode(data) }
             guard mayReplace() else { return false }
-            replace(with: next, url: url); recordRecent(url); showWindow(); return true
+            replace(with: next, url: asRecovery ? nil : url)
+            recoveredDocument = asRecovery; updateWindowTitle()
+            if !asRecovery { recordRecent(url) }
+            showWindow(); return true
         } catch { failure(error); return false }
     }
 
@@ -87,6 +96,7 @@ public final class ProjectSession: ObservableObject {
         window?.makeFirstResponder(nil)
         let next = Self.normalized(value)
         project = next; savedProject = next; fileURL = url; terminating = false
+        recoveredDocument = false; automaticSnapshot = nil; lastAutomaticSaveURL = nil; automaticSaveError = nil; lastAutomaticAttempt = Date()
         identity = UUID(); updateWindowTitle()
     }
 
@@ -101,7 +111,8 @@ public final class ProjectSession: ObservableObject {
             let picker = NSSavePanel(); picker.allowedContentTypes = [.detx, .cappellaProject]
             let name = project.title.isEmpty ? "Sans titre" : project.title
             let safeName = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: "\\", with: "-")
-            picker.nameFieldStringValue = fileURL?.lastPathComponent ?? safeName + ".detx"
+            let proposedName = fileURL?.lastPathComponent ?? safeName + ".detx"
+            picker.nameFieldStringValue = copy ? ApplicationPreferences.load().copyName(for: proposedName) : proposedName
             destination = picker.runModal() == .OK ? picker.url : nil
         }
         guard let destination else { return false }
@@ -112,9 +123,40 @@ public final class ProjectSession: ObservableObject {
             if destination.pathExtension.lowercased() == "cappellaproject" { contents = try project.encode() }
             else { contents = try DetX.write(project) }
             try contents.write(to: destination, options: .atomic)
-            if !copy { fileURL = destination; savedProject = project; recordRecent(destination); updateWindowTitle() }
+            if !copy { fileURL = destination; savedProject = project; recoveredDocument = false; recordRecent(destination); updateWindowTitle() }
             return true
         } catch { failure(error); return false }
+    }
+
+    public static var automaticSaveDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CappellaMac/Autosaves", isDirectory: true)
+    }
+
+    @discardableResult public func attemptAutomaticSave(at now: Date = Date(), preferences: ApplicationPreferences, in directory: URL? = nil) -> URL? {
+        guard preferences.automaticSave else { lastAutomaticAttempt = now; return nil }
+        guard now.timeIntervalSince(lastAutomaticAttempt) >= Double(min(120, max(1, preferences.saveInterval)) * 60),
+              window?.attachedSheet == nil else { return nil }
+        lastAutomaticAttempt = now
+        return writeAutomaticBackup(in: directory)
+    }
+
+    /// Recovery copies never replace the source or clear its unsaved state.
+    @discardableResult public func writeAutomaticBackup(in directory: URL? = nil) -> URL? {
+        guard isModified, project != automaticSnapshot else { return nil }
+        do {
+            let folder = directory ?? Self.automaticSaveDirectory
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let base = fileURL?.deletingPathExtension().lastPathComponent ?? (project.title.isEmpty ? "Sans titre" : project.title)
+            let safe = base.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: "\\", with: "-")
+            let url = folder.appendingPathComponent(safe + "-" + identity.uuidString + ".cappellaproject")
+            try project.encode().write(to: url, options: .atomic)
+            automaticSnapshot = project; lastAutomaticSaveURL = url; automaticSaveError = nil
+            return url
+        } catch {
+            automaticSaveError = "Sauvegarde automatique impossible : " + error.localizedDescription
+            return nil
+        }
     }
 
     private func mayReplace() -> Bool {

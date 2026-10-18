@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import CappellaCore
 
 struct RythmoView: View {
@@ -15,6 +16,8 @@ struct RythmoView: View {
     var selectTrack: (Int) -> Void = { _ in }
     var moveSign: (UUID, UUID, Int) -> Void = { _, _, _ in }
     var editCue: (UUID, Int) -> Void = { _, _ in }
+    var contextMenu: (UUID, UUID?) -> NSMenu? = { _, _ in nil }
+    @AppStorage("general.appearance") private var appearance = "light"
     @State private var dragging = false
     @State private var didDrag = false
     @State private var dragReferenceFrame = 0
@@ -31,7 +34,9 @@ struct RythmoView: View {
             Canvas { context, size in
                 for track in 0..<4 {
                     let rect = CGRect(x: 0, y: CGFloat(track) * laneHeight, width: size.width, height: laneHeight)
-                    let colors: [Color] = track == selectedTrack ? [Color(white: 0.99), Color(white: 0.90)] : [Color(white: 0.68), Color(white: 0.59)]
+                    let colors: [Color] = appearance == "dark"
+                        ? (track == selectedTrack ? [Color(white: 0.35), Color(white: 0.29)] : [Color(white: 0.22), Color(white: 0.16)])
+                        : (track == selectedTrack ? [Color(white: 0.99), Color(white: 0.90)] : [Color(white: 0.68), Color(white: 0.59)])
                     context.fill(Path(rect), with: .linearGradient(Gradient(colors: colors), startPoint: rect.origin, endPoint: CGPoint(x: 0, y: rect.maxY)))
                 }
                 if showGrid {
@@ -47,13 +52,13 @@ struct RythmoView: View {
                             ticks.move(to: CGPoint(x: x, y: y)); ticks.addLine(to: CGPoint(x: x, y: y + length))
                         }
                     }
-                    context.stroke(ticks, with: .color(.black.opacity(0.5)), lineWidth: 0.5)
+                    context.stroke(ticks, with: .color((appearance == "dark" ? Color.white : Color.black).opacity(0.5)), lineWidth: 0.5)
                     var lines = Path()
                     for row in 0...4 {
                         lines.move(to: CGPoint(x: 0, y: CGFloat(row) * laneHeight))
                         lines.addLine(to: CGPoint(x: size.width, y: CGFloat(row) * laneHeight))
                     }
-                    context.stroke(lines, with: .color(.black.opacity(0.55)), lineWidth: 0.5)
+                    context.stroke(lines, with: .color((appearance == "dark" ? Color.white : Color.black).opacity(0.55)), lineWidth: 0.5)
                 }
                 for cue in project.cues where (0..<4).contains(cue.track) {
                     let begin = cursor + CGFloat(cue.start - frame) * scale
@@ -61,7 +66,7 @@ struct RythmoView: View {
                     guard end >= 0, begin <= size.width else { continue }
                     let y = (CGFloat(cue.track) + 0.5) * laneHeight
                     let role = project.roles.first { $0.id == cue.roleID }
-                    let color = role.map(roleDisplayColor) ?? .black
+                    let color = role.map(roleDisplayColor) ?? (appearance == "dark" ? .white : .black)
                     var laneContext = context
                     laneContext.clip(to: Path(CGRect(x: 0, y: CGFloat(cue.track) * laneHeight, width: size.width, height: laneHeight)))
                     for segment in Timeline.segments(cue) where cue.id != editingCue {
@@ -89,7 +94,7 @@ struct RythmoView: View {
                             let x = cursor + CGFloat(sign.frame - frame) * scale
                             guard x >= 0, x <= size.width else { continue }
                             let bottom = CGFloat(cue.track + 1) * laneHeight - 2
-                            let color: Color = sign.kind.hasPrefix("in_") ? .green : sign.kind.hasPrefix("out_") ? .red : .black
+                            let color: Color = sign.kind.hasPrefix("in_") ? .green : sign.kind.hasPrefix("out_") ? .red : (appearance == "dark" ? .white : .black)
                             var path = Path()
                             if sign.kind.hasPrefix("in_") || sign.kind.hasPrefix("out_") {
                                 path.move(to: CGPoint(x: x, y: bottom - 14)); path.addLine(to: CGPoint(x: x - 5, y: bottom - 6))
@@ -133,6 +138,9 @@ struct RythmoView: View {
                 }
                 context.fill(Path(CGRect(x: cursor - 1, y: 0, width: 2, height: size.height)), with: .color(Color(red: 0.77, green: 0, blue: 0)))
             }
+            .overlay {
+                TimelineContextMenu { point in menu(at: point, size: geometry.size) }
+            }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
                 let track = min(3, max(0, Int(value.startLocation.y / laneHeight)))
@@ -169,4 +177,24 @@ struct RythmoView: View {
         .clipped()
         .accessibilityLabel("Bande rythmo, quatre pistes, \(Timecode.format(frame, fps: project.framesPerSecond))")
     }
+    private func menu(at point: CGPoint, size: CGSize) -> NSMenu? {
+        let laneHeight = size.height / 4
+        guard laneHeight > 0 else { return nil }
+        let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
+        let cursor = size.width / 2
+        let track = min(3, max(0, Int(point.y / laneHeight)))
+        let target = frame + Int(((point.x - cursor) / scale).rounded())
+        let laneCues = project.cues.filter { $0.track == track }
+        let cue = laneCues.last { $0.start <= target && $0.end >= target }
+            ?? laneCues.last { cue in
+                cue.anchors.contains { abs(cursor + CGFloat($0.frame - frame) * scale - point.x) <= 7 }
+            }
+        guard let cue else { return nil }
+        var signID: UUID?
+        if showGrid, point.y >= CGFloat(track + 1) * laneHeight - 20 {
+            signID = cue.anchors.first { abs(cursor + CGFloat($0.frame - frame) * scale - point.x) <= 7 }?.id
+        }
+        return contextMenu(cue.id, signID)
+    }
+
 }

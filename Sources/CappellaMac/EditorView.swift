@@ -21,6 +21,9 @@ struct EditorView: View {
     @State private var shotProgress = 0.0
     @State private var shotThreshold = 0.25
     @State private var detectingShots = false
+    @AppStorage("general.appearance") private var appearance = "light"
+    @AppStorage("rythmo.closeReactions") private var closeReactions = false
+    @AppStorage("video.offsetMilliseconds") private var videoOffsetMilliseconds = 0.0
     @State private var selection: UUID?
     @State private var selectedSign: UUID?
     @State private var editingPhrase = false
@@ -54,7 +57,7 @@ struct EditorView: View {
     private var selectedCue: Cue? { project.cues.first { $0.id == selection } }
     private var orderedCues: [Cue] { project.cues.sorted { $0.start == $1.start ? $0.track < $1.track : $0.start < $1.start } }
     private var commandState: EditorCommandState {
-        EditorCommandState(hasSelection: selection != nil, hasSign: selectedSign != nil,
+        EditorCommandState(currentTrack: currentTrack, hasSelection: selection != nil, hasSign: selectedSign != nil,
                            showGrid: showGrid, showDetection: showDetection,
                            recording: recorder.recording, usingVI: transport.usingVI,
                            detectionMode: detectionMode)
@@ -77,7 +80,7 @@ struct EditorView: View {
                            selectTrack: { track in
                                if editingPhrase { finishPhrase() }
                                currentTrack = track; selectedSign = nil; selection = nil
-                           }, moveSign: moveSign, editCue: editTimelineCue)
+                           }, moveSign: moveSign, editCue: editTimelineCue, contextMenu: phraseContextMenu)
                     .overlay(alignment: .topLeading) {
                         if editingPhrase, let cue = selectedCue {
                             timelineEditor(cue)
@@ -87,8 +90,8 @@ struct EditorView: View {
                     .clipped()
             }
         }
-        .background(Color(white: 0.965))
-        .preferredColorScheme(.light)
+        .background(appearance == "dark" ? Color(white: 0.13) : Color(white: 0.965))
+        .preferredColorScheme(appearance == "dark" ? .dark : .light)
         .background(EditorKeyboardMonitor(perform: perform).frame(width: 0, height: 0))
         .focusedSceneObject(commandActions)
         .onChange(of: commandState) { commandActions.state = $0 }
@@ -99,6 +102,10 @@ struct EditorView: View {
             if let position = project.lastPositionFrame { seek(to: position) }
             if let path = project.videoPath, FileManager.default.fileExists(atPath: path) { transport.open(URL(fileURLWithPath: path), sound: validSoundURL) }
             else if let sound = validSoundURL { transport.openSound(sound) }
+            if ApplicationPreferences.load().showControlAtLaunch,
+               ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_MARKER"] == nil {
+                projection.showAtStartup(project: $project, transport: transport, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize)
+            }
             StartupSmokeCheck.recordEditorAppearance(cueCount: project.cues.count)
         }
         .onDisappear { commandActions.perform = { _ in }; transport.close(); projection.close(); shotTask?.cancel() }
@@ -120,24 +127,17 @@ struct EditorView: View {
                             }
                             Text(cue.text).font(.custom("Courier New", size: 12)).frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .foregroundStyle(Color(red: 0.02, green: 0.08, blue: 0.14))
+                        .foregroundStyle(appearance == "dark" ? Color(white: 0.9) : Color(red: 0.02, green: 0.08, blue: 0.14))
                         .padding(.vertical, 2).padding(.horizontal, 8)
                         .background(selection == cue.id ? Color.blue.opacity(0.08) : Color.clear)
                         .contentShape(Rectangle()).id(cue.id)
                         .onTapGesture(count: 2) { select(cue, edit: true) }
                         .onTapGesture { select(cue, edit: false) }
-                        .contextMenu {
-                            Button("Modifier la phrase") { select(cue, edit: true) }
-                            Menu("Changer de piste") {
-                                ForEach(0..<4) { track in Button("Piste \(track + 1)") { selection = cue.id; perform(.moveTrack(track)) } }
-                            }
-                            Button("Voix off") { selection = cue.id; perform(.voiceOff) }
-                            Button("Supprimer", role: .destructive) { selection = cue.id; perform(.deletePhrase) }
-                        }
+                        .overlay(TimelineContextMenu { _ in phraseContextMenu(cue.id, nil) })
                     }
                 }.padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .background(Color(red: 0.965, green: 0.968, blue: 0.977))
+            .background(appearance == "dark" ? Color(white: 0.13) : Color(red: 0.965, green: 0.968, blue: 0.977))
             .onChange(of: selection) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
             .onChange(of: frame) { value in
                 guard transport.rate != 0, !editingPhrase,
@@ -151,7 +151,7 @@ struct EditorView: View {
         ZStack {
             Color.white
             if transport.mediaName != nil {
-                NativeVideoView(player: transport.player)
+                NativeVideoView(player: transport.player, timeOffset: videoOffsetMilliseconds / 1000)
             } else if let image = Self.mire {
                 GeometryReader { geometry in
                     Image(nsImage: image).resizable().scaledToFill()
@@ -215,7 +215,7 @@ struct EditorView: View {
             let width = DialogueTextEditor.fittingWidth(cue.text, fontName: fontName, fontSize: fontSize)
             DialogueTextEditor(text: Binding(get: { selectedCue?.text ?? "" }, set: { value in
                 mutateSelected { $0.editText(value) }
-            }), caret: $caret, fontName: fontName, fontSize: fontSize)
+            }), caret: $caret, fontName: fontName, fontSize: fontSize, menuProvider: { phraseContextMenu(cue.id, nil) })
                 .frame(width: min(width, max(8, geometry.size.width - left)), height: geometry.size.height / 4 - 2)
                 .offset(x: left, y: CGFloat(cue.track) * geometry.size.height / 4 + 1)
                 .id(cue.id)
@@ -249,9 +249,16 @@ struct EditorView: View {
         case .chooseRole:
             VStack(alignment: .leading, spacing: 12) {
                 Text("Attribuer la phrase à un rôle").font(.headline)
-                List(project.roles, selection: $chosenRole) { role in
-                    Text(role.name).foregroundStyle(roleDisplayColor(role)).tag(role.id)
-                        .onTapGesture(count: 2) { chosenRole = role.id; confirmRole() }
+                HStack(alignment: .top, spacing: 16) {
+                    List(project.roles, selection: $chosenRole) { role in
+                        Text(role.name).foregroundStyle(roleDisplayColor(role)).tag(role.id)
+                            .onTapGesture(count: 2) { chosenRole = role.id; confirmRole() }
+                    }.frame(minWidth: 240)
+                    VStack(spacing: 10) {
+                        RolePortrait(role: project.roles.first { $0.id == chosenRole })
+                        Text(project.roles.first { $0.id == chosenRole }?.name ?? "Sélectionner un rôle")
+                            .font(.caption).multilineTextAlignment(.center)
+                    }.frame(width: 140)
                 }
                 HStack {
                     Button("Nouveau…") {
@@ -263,7 +270,7 @@ struct EditorView: View {
                     Button("Annuler") { panel = nil }.keyboardShortcut(.cancelAction)
                     Spacer(); Button("OK", action: confirmRole).keyboardShortcut(.defaultAction).disabled(chosenRole == nil)
                 }
-            }.padding(18).frame(width: 380, height: 360)
+            }.padding(18).frame(width: 460, height: 360)
         case .find:
             VStack(alignment: .leading, spacing: 14) {
                 Text("Rechercher").font(.headline)
@@ -293,18 +300,7 @@ struct EditorView: View {
                 }
                 Button("Fermer") { panel = nil }.keyboardShortcut(.cancelAction)
             }.padding().frame(width: 500, height: 340)
-        case .preferences:
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Bande rythmo").font(.headline)
-                Picker("Police", selection: $fontName) {
-                    ForEach(["Apple Chancery", "Snell Roundhand", "Times New Roman", "Arial", "Courier New"], id: \.self) { Text($0).tag($0) }
-                }
-                HStack { Text("Taille"); Slider(value: $fontSize, in: 16...42); Text("\(Int(fontSize))") }
-                HStack { Text("Vitesse de défilement"); Slider(value: $pixelsPerSecond, in: 30...400) }
-                HStack { Text("Hauteur"); Slider(value: $rythmoHeight, in: 120...260) }
-                Toggle("Grille et signes", isOn: $showGrid); Toggle("Détection", isOn: $showDetection)
-                Button("Fermer") { panel = nil }.keyboardShortcut(.defaultAction)
-            }.padding(20).frame(width: 480)
+        case .preferences: PreferencesPanel()
         case .validation:
             VStack {
                 Text("Vérification de la rythmo").font(.headline)
@@ -333,6 +329,9 @@ struct EditorView: View {
                 return try text.data(from: NSRange(location: 0, length: text.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
             }
         case .exportCrossTable: exportData(type: .commaSeparatedText, name: "Croisille.csv") { Data(project.crossTableCSV().utf8) }
+        case .changeRole:
+            guard let cue = selectedCue else { return }
+            assigningExisting = true; chosenRole = cue.roleID; panel = .chooseRole
         case .roles:
             if editingPhrase { assigningExisting = true; chosenRole = selectedCue?.roleID; panel = .chooseRole }
             else { panel = .roles }
@@ -366,19 +365,34 @@ struct EditorView: View {
             selection = project.cues.last(where: { $0.track == currentTrack && $0.start <= frame && $0.end >= frame })?.id
             selectedSign = nil
         case .moveTrack(let value):
+            guard (0..<4).contains(value) else { return }
             guard let cue = selectedCue, !project.cues.contains(where: { $0.id != cue.id && $0.track == value && $0.start < cue.end && $0.end > cue.start }) else { NSSound.beep(); return }
             currentTrack = value; mutateSelected { $0.track = value }
         case .relativeTrack(let delta): perform(.track(currentTrack + delta))
         case .findNext: findNext()
         case .cancelPhrase: cancelPhrase()
         case .reaction(let text):
-            if newPhrase, selectedCue?.text == text { setBoundary(start: false, kind: "out_open"); finishPhrase() }
+            if closeReactions {
+                pendingText = text; pendingEdit = false; addPhrase(kind: "in_open")
+            } else if newPhrase, selectedCue?.text == text { setBoundary(start: false, kind: "out_open"); finishPhrase() }
             else { pendingText = text; pendingEdit = false; addPhrase(kind: "in_open") }
         case .detachSigns:
             mutateSelected { cue in
                 var signs = cue.anchors
                 for i in signs.indices { signs[i].textOffset = Int((Double(signs[i].frame - cue.start) / Double(cue.end - cue.start) * Double(cue.text.unicodeScalars.count)).rounded()) }
                 cue.signs = signs
+            }
+        case .detachSign:
+            guard let id = selectedSign else { return }
+            mutateSelected { Timeline.detachSign(in: &$0, id: id) }
+        case .changeSignType(let kind):
+            guard let id = selectedSign else { return }
+            mutateSelected { cue in
+                var signs = cue.anchors
+                guard let index = signs.firstIndex(where: { $0.id == id }) else { return }
+                let valid = index == 0 ? kind.hasPrefix("in_") : index == signs.count - 1 ? kind.hasPrefix("out_") : !kind.hasPrefix("in_") && !kind.hasPrefix("out_")
+                guard valid else { return }
+                signs[index].kind = kind; cue.signs = signs
             }
         case .shiftAnchor(let delta):
             mutateSelected { cue in
@@ -426,6 +440,14 @@ struct EditorView: View {
         }
     }
 
+    private func phraseContextMenu(_ cueID: UUID, _ signID: UUID?) -> NSMenu? {
+        guard let cue = project.cues.first(where: { $0.id == cueID }) else { return nil }
+        if editingPhrase && selection != cueID { finishPhrase() }
+        selection = cueID; currentTrack = cue.track; selectedSign = signID
+        let sign = cue.anchors.first { $0.id == signID }
+        return PhraseContextMenu.make(cue: cue, sign: sign, perform: perform)
+    }
+
     private func mutateSelected(_ change: (inout Cue) -> Void) {
         guard let index = project.cues.firstIndex(where: { $0.id == selection }) else { return }
         change(&project.cues[index])
@@ -470,7 +492,10 @@ struct EditorView: View {
         cue.track = currentTrack; cue.signs = cue.anchors; cue.signs?[0].kind = pendingKind
         project.cues.append(cue); selection = cue.id; selectedSign = nil
         originalPhrase = nil; newPhrase = true; editingPhrase = pendingEdit; detectionMode = !pendingEdit
-        caret = cue.text.unicodeScalars.count; pendingText = ""; panel = nil
+        caret = cue.text.unicodeScalars.count
+        let autoClose = closeReactions && !pendingText.isEmpty && !pendingEdit
+        pendingText = ""; panel = nil
+        if autoClose { finishPhrase() }
     }
     private func finishPhrase() {
         editingPhrase = false; detectionMode = true; originalPhrase = nil; newPhrase = false
@@ -654,6 +679,12 @@ struct EditorView: View {
 @MainActor
 private final class ProjectionController: ObservableObject {
     private var window: NSWindow?
+    private static var didShowAtStartup = false
+    func showAtStartup(project: Binding<Project>, transport: Transport, pixelsPerSecond: Double, fontName: String, fontSize: Double) {
+        guard !Self.didShowAtStartup else { return }
+        Self.didShowAtStartup = true
+        show(project: project, transport: transport, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize)
+    }
     func show(project: Binding<Project>, transport: Transport, pixelsPerSecond: Double, fontName: String, fontSize: Double) {
         if let window { window.makeKeyAndOrderFront(nil); return }
         let view = ProjectionView(project: project, transport: transport, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize)

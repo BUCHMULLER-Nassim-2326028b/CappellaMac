@@ -8,16 +8,18 @@ func cappellaFunctionKey(_ number: Int) -> KeyEquivalent {
 
 enum EditorAction {
     case openMedia, openVI, importDetX, importRoles, exportDetX, exportScript, exportCrossTable
-    case roles, properties, find, goTimecode, shift, timestamp, check, preferences
+    case roles, changeRole, properties, find, goTimecode, shift, timestamp, check, preferences
     case playPause, stop, step(Int), rate(Float), navigate(String, Int)
     case addPhrase, deletePhrase, track(Int), mode, addSign(String), deleteSign, shiftSign(Int), voiceOff
     case addLoop, addShot, markPosition, positions, zoom(Double), grid, detection, fullScreen, projection
     case toggleVI, mute, volume(Float), recordAudio, detectShots
+    case detachSign, changeSignType(String)
     case moveTrack(Int), relativeTrack(Int), cancelPhrase, findNext, reaction(String), shiftAnchor(Int), detachSigns, jumpAnchor(Int), copyPhrase, cutPhrase, pastePhrase
 }
 
 /// Only state that affects the menus belongs here; the playback clock does not.
 struct EditorCommandState: Equatable {
+    var currentTrack = 0
     var hasSelection = false
     var hasSign = false
     var showGrid = true
@@ -50,6 +52,9 @@ struct CappellaCommands: Commands {
             Divider()
             Button("Rechercher…") { run(.find) }.keyboardShortcut("f", modifiers: .control)
             Menu("Piste") {
+                Button("Piste précédente") { run(.relativeTrack(-1)) }.keyboardShortcut(.upArrow, modifiers: .control).disabled(editor?.state.currentTrack == 0)
+                Button("Piste suivante") { run(.relativeTrack(1)) }.keyboardShortcut(.downArrow, modifiers: .control).disabled(editor?.state.currentTrack == 3)
+                Divider()
                 ForEach(0..<4) { track in Button("Piste \(track + 1)") { run(.track(track)) }.keyboardShortcut(cappellaFunctionKey(5 + track), modifiers: []) }
             }
             Menu("Ajouter un signe") {
@@ -300,7 +305,7 @@ private struct CappellaFileCommands: Commands {
             Button("Ouvrir…") { ProjectSession.shared.chooseOpen() }.keyboardShortcut("o")
         }
         CommandGroup(after: .newItem) {
-            Button("Ouvrir une sauvegarde…") { ProjectSession.shared.chooseOpen() }
+            Button("Ouvrir une sauvegarde…") { ProjectSession.shared.chooseOpen(backup: true) }
         }
         CommandGroup(replacing: .printItem) {}
         CommandGroup(replacing: .saveItem) {
