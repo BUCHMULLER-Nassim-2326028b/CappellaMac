@@ -8,7 +8,7 @@ import Darwin
 }
 @MainActor private struct TextFixture: View {
     @ObservedObject var model: TextModel
-    var body: some View { DialogueTextEditor(text: $model.text, caret: $model.caret).frame(width: 500, height: 50) }
+    var body: some View { DialogueTextEditor(text: $model.text, caret: $model.caret).frame(width: min(500, DialogueTextEditor.fittingWidth(model.text)), height: 50) }
 }
 
 @main
@@ -67,6 +67,34 @@ struct TimelineTextCheck {
         view.setSelectedRange(NSRange(location: 6, length: 6))
         view.insertText("", replacementRange: view.selectedRange())
         try await waitFor("Remplacer une sélection ne modifie pas la même réplique.") { model.text == "Merci maman." }
+        let shortWidth = view.enclosingScrollView!.frame.width
+        view.setSelectedRange(NSRange(location: view.string.utf16.count, length: 0))
+        let addition = String(repeating: " encore", count: 30)
+        view.insertText(addition, replacementRange: view.selectedRange())
+        try await waitFor("Le champ ne grandit pas avec le texte.") {
+            model.text == "Merci maman." + addition && view.enclosingScrollView!.frame.width > shortWidth + 20
+        }
+        try require(view.textContainer?.widthTracksTextView == false, "Le texte ne doit pas se replier sur la largeur du champ.")
+        if let layout = view.layoutManager, let container = view.textContainer {
+            layout.ensureLayout(for: container)
+            var lineCount = 0
+            layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, _, _ in lineCount += 1 }
+            try require(lineCount == 1, "Une longue réplique doit rester sur une seule ligne.")
+        }
+        view.setSelectedRange(NSRange(location: "Merci maman.".utf16.count, length: addition.utf16.count))
+        view.insertText("", replacementRange: view.selectedRange())
+        try await waitFor("Le champ ne rétrécit pas après suppression du texte.") {
+            model.text == "Merci maman." && abs(view.enclosingScrollView!.frame.width - shortWidth) < 1
+        }
+        try require(window.firstResponder === view, "Le redimensionnement ne doit pas perdre le clavier.")
+        view.setSelectedRange(NSRange(location: 0, length: view.string.utf16.count))
+        view.insertText("", replacementRange: view.selectedRange())
+        try await waitFor("Une réplique vide doit garder un champ et un curseur visibles.") {
+            model.text.isEmpty && view.enclosingScrollView!.frame.width <= 9 && view.bounds.width > 0 && view.bounds.height > 0
+        }
+        try require(window.firstResponder === view, "Effacer tout le texte ne doit pas perdre le clavier.")
+        view.insertText("À nouveau.", replacementRange: view.selectedRange())
+        try await waitFor("Impossible de reprendre la saisie dans une réplique vidée.") { model.text == "À nouveau." }
         print("Texte sur bande : reprise du clavier après une feuille, saisie accentuée et remplacement de sélection vérifiés.")
     }
     @MainActor static func main() {

@@ -9,6 +9,15 @@ struct DialogueTextEditor: NSViewRepresentable {
     var fontName = "Apple Chancery"
     var fontSize = 28.0
 
+    /// Measure the same font used by NSTextView, including space for its caret.
+    /// The band editor grows with the text, independently of cue duration.
+    static func fittingWidth(_ text: String, fontName: String = "Apple Chancery", fontSize: Double = 28) -> CGFloat {
+        let font = NSFont(name: fontName, size: CGFloat(fontSize)) ?? .systemFont(ofSize: CGFloat(fontSize))
+        let lines = text.components(separatedBy: .newlines)
+        let width = lines.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return max(8, ceil(width) + 8)
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -20,10 +29,14 @@ struct DialogueTextEditor: NSViewRepresentable {
         view.backgroundColor = .black; view.textColor = .white; view.insertionPointColor = .white
         view.textContainerInset = NSSize(width: 2, height: 0)
         view.isAutomaticQuoteSubstitutionEnabled = false; view.isAutomaticDashSubstitutionEnabled = false
-        view.isVerticallyResizable = true; view.isHorizontallyResizable = false
-        view.autoresizingMask = [.width]; view.textContainer?.widthTracksTextView = true
-        view.minSize = .zero; view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        view.isVerticallyResizable = false; view.isHorizontallyResizable = true
+        view.autoresizingMask = []
+        view.textContainer?.widthTracksTextView = false
+        view.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        view.textContainer?.lineFragmentPadding = 0
+        view.minSize = NSSize(width: 8, height: CGFloat(fontSize) + 4); view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.string = text
+        view.sizeToFit()
         view.setSelectedRange(NSRange(location: Self.utf16Offset(caret, in: text), length: 0))
         view.delegate = context.coordinator; scroll.documentView = view
         return scroll
@@ -38,6 +51,10 @@ struct DialogueTextEditor: NSViewRepresentable {
         if view.selectedRange().length == 0, view.selectedRange().location != target {
             view.setSelectedRange(NSRange(location: target, length: 0)); view.scrollRangeToVisible(view.selectedRange())
         }
+        let font = NSFont(name: fontName, size: CGFloat(fontSize)) ?? .systemFont(ofSize: CGFloat(fontSize))
+        if view.font != font { view.font = font }
+        view.sizeToFit()
+        view.scrollRangeToVisible(view.selectedRange())
         view.requestInitialFocus()
     }
     private static func utf16Offset(_ offset: Int, in value: String) -> Int {
@@ -55,6 +72,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         }
         func textDidChange(_ notification: Notification) {
             guard !updating, let view = notification.object as? NSTextView else { return }
+            view.sizeToFit()
             updateCaret(view); parent.text = view.string
         }
         func textViewDidChangeSelection(_ notification: Notification) {

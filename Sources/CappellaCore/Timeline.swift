@@ -7,6 +7,22 @@ public struct TimedText: Equatable {
 }
 
 public enum Timeline {
+    /// A stopped transport holds an exact requested frame, even when the
+    /// seconds representation lies a fraction below that frame in binary.
+    public static func frame(at seconds: Double, fps: Int, playing: Bool) -> Int {
+        guard seconds.isFinite, fps > 0 else { return 0 }
+        return Int((max(0, seconds) * Double(fps)).rounded(playing ? .down : .toNearestOrAwayFromZero))
+    }
+
+    public static func snapFrames(in project: Project) -> [Int] {
+        let signs = project.cues.flatMap { $0.anchors.map(\.frame) }
+        return Array(Set(signs + project.loops.map(\.frame) + project.shots.map(\.frame))).sorted()
+    }
+
+    public static func adjacentFrame(in frames: [Int], from current: Int, direction: Int) -> Int? {
+        direction > 0 ? frames.lazy.filter { $0 > current }.min() : frames.lazy.filter { $0 < current }.max()
+    }
+
     public static func segments(_ cue: Cue) -> [TimedText] {
         let anchors = cue.anchors
         return zip(anchors, anchors.dropFirst()).compactMap { left, right in

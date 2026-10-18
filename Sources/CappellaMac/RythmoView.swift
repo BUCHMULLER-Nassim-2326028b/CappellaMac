@@ -11,7 +11,8 @@ struct RythmoView: View {
     var showDetection: Bool
     var selectedSign: UUID?
     var selectedTrack: Int? = nil
-    var seek: (Int, Int) -> Void = { _, _ in }
+    var editingCue: UUID? = nil
+    var selectTrack: (Int) -> Void = { _ in }
     var moveSign: (UUID, UUID, Int) -> Void = { _, _, _ in }
     var editCue: (UUID, Int) -> Void = { _, _ in }
     @State private var dragging = false
@@ -54,20 +55,6 @@ struct RythmoView: View {
                     }
                     context.stroke(lines, with: .color(.black.opacity(0.55)), lineWidth: 0.5)
                 }
-                if showDetection {
-                    for shot in project.shots {
-                        let x = cursor + CGFloat(shot.frame - frame) * scale
-                        guard x >= 0, x <= size.width else { continue }
-                        var path = Path(); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
-                        context.stroke(path, with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    }
-                    for loop in project.loops {
-                        let x = cursor + CGFloat(loop.frame - frame) * scale
-                        guard x >= 0, x <= size.width else { continue }
-                        context.fill(Path(CGRect(x: x, y: 0, width: 2, height: size.height)), with: .color(.orange.opacity(0.75)))
-                        context.draw(Text(loop.label).font(.system(size: 10, weight: .bold)).foregroundColor(.black), at: CGPoint(x: x + 4, y: size.height - 8), anchor: .leading)
-                    }
-                }
                 for cue in project.cues where (0..<4).contains(cue.track) {
                     let begin = cursor + CGFloat(cue.start - frame) * scale
                     let end = cursor + CGFloat(cue.end - frame) * scale
@@ -77,7 +64,7 @@ struct RythmoView: View {
                     let color = role.map(roleDisplayColor) ?? .black
                     var laneContext = context
                     laneContext.clip(to: Path(CGRect(x: 0, y: CGFloat(cue.track) * laneHeight, width: size.width, height: laneHeight)))
-                    for segment in Timeline.segments(cue) {
+                    for segment in Timeline.segments(cue) where cue.id != editingCue {
                         let x = cursor + CGFloat(segment.start - frame) * scale
                         let segmentWidth = CGFloat(segment.end - segment.start) * scale
                         guard segmentWidth > 0, x + segmentWidth >= 0, x <= size.width else { continue }
@@ -120,6 +107,30 @@ struct RythmoView: View {
                         }
                     }
                 }
+                if showDetection {
+                    // Solid plan bars remain legible on both selected and
+                    // unselected lanes, as on the original band.
+                    for shot in project.shots {
+                        let x = cursor + CGFloat(shot.frame - frame) * scale
+                        guard x >= -4, x <= size.width + 4 else { continue }
+                        context.fill(Path(CGRect(x: x - 3, y: 0, width: 6, height: size.height)), with: .color(Color(white: 0.34)))
+                        context.fill(Path(CGRect(x: x - 3, y: 0, width: 1, height: size.height)), with: .color(.black.opacity(0.8)))
+                        context.fill(Path(CGRect(x: x + 2, y: 0, width: 1, height: size.height)), with: .color(.white.opacity(0.65)))
+                    }
+                    let blue = Color(red: 0, green: 0.36, blue: 0.78)
+                    for loop in project.loops {
+                        let x = cursor + CGFloat(loop.frame - frame) * scale
+                        guard x >= -16, x <= size.width + 16 else { continue }
+                        context.fill(Path(CGRect(x: x - 2, y: 0, width: 4, height: size.height)), with: .color(blue))
+                        let label = context.resolve(Text(loop.label).font(.system(size: 13, weight: .bold)).foregroundColor(.white))
+                        let measured = label.measure(in: CGSize(width: 300, height: 20))
+                        let badgeWidth = max(20, measured.width + 8)
+                        let badgeX = min(max(0, x - badgeWidth / 2), max(0, size.width - badgeWidth))
+                        let badgeY = max(0, size.height - 21)
+                        context.fill(Path(CGRect(x: badgeX, y: badgeY, width: badgeWidth, height: 21)), with: .color(blue))
+                        context.draw(label, at: CGPoint(x: badgeX + badgeWidth / 2, y: badgeY + 10.5))
+                    }
+                }
                 context.fill(Path(CGRect(x: cursor - 1, y: 0, width: 2, height: size.height)), with: .color(Color(red: 0.77, green: 0, blue: 0)))
             }
             .contentShape(Rectangle())
@@ -137,19 +148,19 @@ struct RythmoView: View {
                     }
                 }
                 if abs(value.translation.width) > 3 || abs(value.translation.height) > 3 { didDrag = true }
-                let target = max(0, dragReferenceFrame + Int(((value.location.x - cursor) / scale).rounded()))
-                if let (cueID, signID) = draggedSign {
+                if didDrag, let (cueID, signID) = draggedSign {
                     moveSign(cueID, signID, max(0, dragSignFrame + Int((value.translation.width / scale).rounded())))
                 }
-                else { seek(target, track) }
             }.onEnded { value in
-                // Use the frame from mouse-down: scrubbing may already have
-                // changed the displayed frame before this click is released.
+                // A click selects a lane or edits text; it never seeks the
+                // transport. Only an intentional sign drag changes timing.
                 if !didDrag {
                     let track = min(3, max(0, Int(value.startLocation.y / laneHeight)))
                     let target = max(0, dragReferenceFrame + Int(((value.startLocation.x - cursor) / scale).rounded()))
                     if let cue = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target }) {
                         editCue(cue.id, target)
+                    } else {
+                        selectTrack(track)
                     }
                 }
                 dragging = false; draggedSign = nil; didDrag = false

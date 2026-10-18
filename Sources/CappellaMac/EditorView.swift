@@ -50,7 +50,7 @@ struct EditorView: View {
     @AppStorage("rythmo.height") private var rythmoHeight = 146.0
     @AppStorage("rythmo.grid") private var showGrid = true
     @AppStorage("rythmo.detection") private var showDetection = true
-    private var frame: Int { project.mediaStartFrame + Int((transport.seconds * Double(project.framesPerSecond)).rounded(.down)) }
+    private var frame: Int { project.mediaStartFrame + Timeline.frame(at: transport.seconds, fps: project.framesPerSecond, playing: transport.rate != 0) }
     private var selectedCue: Cue? { project.cues.first { $0.id == selection } }
     private var orderedCues: [Cue] { project.cues.sorted { $0.start == $1.start ? $0.track < $1.track : $0.start < $1.start } }
     private var commandState: EditorCommandState {
@@ -73,10 +73,10 @@ struct EditorView: View {
                 }
                 RythmoView(project: project, frame: frame, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize,
                            showGrid: showGrid, showDetection: showDetection, selectedSign: selectedSign, selectedTrack: currentTrack,
-                           seek: { target, track in
+                           editingCue: editingPhrase ? selection : nil,
+                           selectTrack: { track in
                                if editingPhrase { finishPhrase() }
-                               currentTrack = track; selectedSign = nil; seek(to: target)
-                               selection = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target })?.id
+                               currentTrack = track; selectedSign = nil; selection = nil
                            }, moveSign: moveSign, editCue: editTimelineCue)
                     .overlay(alignment: .topLeading) {
                         if editingPhrase, let cue = selectedCue {
@@ -84,6 +84,7 @@ struct EditorView: View {
                         }
                     }
                     .frame(height: rythmoHeight)
+                    .clipped()
             }
         }
         .background(Color(white: 0.965))
@@ -211,11 +212,11 @@ struct EditorView: View {
         GeometryReader { geometry in
             let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
             let left = max(0, geometry.size.width / 2 + CGFloat(cue.start - frame) * scale)
-            let right = min(geometry.size.width, geometry.size.width / 2 + CGFloat(cue.end - frame) * scale)
+            let width = DialogueTextEditor.fittingWidth(cue.text, fontName: fontName, fontSize: fontSize)
             DialogueTextEditor(text: Binding(get: { selectedCue?.text ?? "" }, set: { value in
                 mutateSelected { $0.editText(value) }
             }), caret: $caret, fontName: fontName, fontSize: fontSize)
-                .frame(width: max(80, right - left), height: geometry.size.height / 4 - 2)
+                .frame(width: min(width, max(8, geometry.size.width - left)), height: geometry.size.height / 4 - 2)
                 .offset(x: left, y: CGFloat(cue.track) * geometry.size.height / 4 + 1)
                 .id(cue.id)
         }
@@ -445,7 +446,7 @@ struct EditorView: View {
         if !editingPhrase || selection != cue.id { originalPhrase = cue; newPhrase = false }
         selection = cue.id; currentTrack = cue.track; selectedSign = nil
         caret = Timeline.textOffset(in: cue, at: target)
-        editingPhrase = true; detectionMode = false; seek(to: target)
+        editingPhrase = true; detectionMode = false
     }
     private func editTimelineCue(_ id: UUID, _ target: Int) {
         guard let cue = project.cues.first(where: { $0.id == id }) else { return }
@@ -510,17 +511,25 @@ struct EditorView: View {
         Timeline.moveSign(in: &project.cues[index], id: signID, to: target)
     }
     private func navigate(_ type: String, direction: Int) {
+        if editingPhrase { finishPhrase() }
+        transport.setRate(0)
+        let current = frame
         let targets: [Int]
         switch type {
         case "loop": targets = project.loops.map(\.frame)
         case "shot": targets = project.shots.map(\.frame)
-        case "sign": targets = project.cues.flatMap { $0.anchors.map(\.frame) }
+        case "sign": targets = Timeline.snapFrames(in: project)
         case "role": targets = project.cues.filter { $0.roleID == selectedCue?.roleID }.map(\.start)
         default: targets = project.cues.map(\.start)
         }
-        let target = direction > 0 ? targets.filter { $0 > frame }.min() : targets.filter { $0 < frame }.max()
+        // Exclude unreachable markers, otherwise repeated arrows can keep
+        // choosing a point that the media transport immediately clamps away.
+        let lastFrame = transport.duration > 0 ? project.mediaStartFrame + Timeline.frame(at: transport.duration, fps: project.framesPerSecond, playing: true) : Int.max
+        let reachable = targets.filter { $0 >= project.mediaStartFrame && $0 <= lastFrame }
+        let target = Timeline.adjacentFrame(in: reachable, from: current, direction: direction)
         guard let target else { return }
         seek(to: target)
+        selectedSign = nil
         if let cue = orderedCues.first(where: { type == "sign" ? $0.anchors.contains(where: { $0.frame == target }) : $0.start == target }) {
             selection = cue.id; currentTrack = cue.track
             selectedSign = type == "sign" ? cue.anchors.first { $0.frame == target }?.id : nil

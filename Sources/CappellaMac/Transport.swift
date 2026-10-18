@@ -28,6 +28,9 @@ final class Transport: ObservableObject {
     private var itemObservation: NSKeyValueObservation?
     private var scopedURLs: [URL] = []
     private var loadTask: Task<Void, Never>?
+    private var seekInFlight = false
+    private var queuedSeek: Double?
+    private var seekGeneration = UUID()
 
     init() {
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.tick() }
@@ -37,7 +40,7 @@ final class Transport: ObservableObject {
 
     private func tick() {
         let now = Date(); let elapsed = min(0.1, now.timeIntervalSince(previousTick)); previousTick = now
-        guard rate != 0 else { return }
+        guard rate != 0, !seekInFlight else { return }
         if player.currentItem != nil && rate > 0 {
             let position = player.currentTime().seconds
             if position.isFinite { seconds = max(0, position) }
@@ -45,7 +48,7 @@ final class Transport: ObservableObject {
         } else {
             seconds = max(0, seconds + elapsed * Double(rate))
             if player.currentItem != nil {
-                player.seek(to: CMTime(seconds: seconds, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+                requestMediaSeek(seconds)
             }
             if seconds == 0 && rate < 0 { setRate(0) }
         }
@@ -53,6 +56,7 @@ final class Transport: ObservableObject {
 
     func close() {
         loadTask?.cancel(); loadTask = nil; setRate(0)
+        resetMediaSeeks()
         player.replaceCurrentItem(with: nil); itemObservation = nil; preparedAudio = nil
         scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }; scopedURLs.removeAll()
     }
@@ -110,6 +114,7 @@ final class Transport: ObservableObject {
                     let message = item.error?.localizedDescription ?? "Lecture du média impossible."
                     DispatchQueue.main.async { self?.error = message; self?.setRate(0) }
                 }
+                self.resetMediaSeeks()
                 self.player.replaceCurrentItem(with: item)
                 self.preparedAudio = prepared
                 let duration = composition.duration.seconds
@@ -156,10 +161,32 @@ final class Transport: ObservableObject {
     func seek(seconds target: Double) {
         guard target.isFinite else { return }
         seconds = max(0, duration > 0 ? min(target, duration) : target)
-        let time = CMTime(seconds: seconds, preferredTimescale: 60000)
-        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
-
+        requestMediaSeek(seconds)
         previousTick = Date()
+    }
+
+    /// The logical position changes immediately for every key press. Decode
+    /// only the latest requested position once the current seek completes.
+    private func requestMediaSeek(_ target: Double) {
+        guard player.currentItem != nil else { return }
+        if seekInFlight { queuedSeek = target; return }
+        seekInFlight = true
+        let generation = seekGeneration
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.seekGeneration == generation else { return }
+                self.seekInFlight = false
+                if let next = self.queuedSeek {
+                    self.queuedSeek = nil
+                    self.requestMediaSeek(next)
+                }
+            }
+        }
+    }
+
+    private func resetMediaSeeks() {
+        seekGeneration = UUID(); seekInFlight = false; queuedSeek = nil
+        player.currentItem?.cancelPendingSeeks()
     }
 
     func setRate(_ value: Float) {
