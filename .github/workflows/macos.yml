@@ -43,7 +43,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: CappellaMac-arm64
-          path: dist/CappellaMac-arm64.zip
+          path: dist/Cappella-MacOS-arm64.zip
           if-no-files-found: error
   launch-macos-26:
     needs: build
@@ -55,7 +55,7 @@ jobs:
           name: CappellaMac-arm64
           path: dist
       - name: Extract app built on macOS 15
-        run: ditto -x -k dist/CappellaMac-arm64.zip dist
+        run: ditto -x -k dist/Cappella-MacOS-arm64.zip dist
       - name: Launch empty editor on macOS 26
         run: python3 scripts/smoke_macos.py "dist/Cappella.app" --screenshot dist/previews/empty.png
       - name: Open DetX with intermediate signs on macOS 26
