@@ -168,13 +168,26 @@ public enum DetX {
             root.addChild(bookmark)
         }
         // Cappella writes a chronological stream of loops, shots and phrases.
-        let events = (body.children ?? []).compactMap { $0 as? XMLElement }.filter { ["line", "loop", "shot"].contains($0.name ?? "") }
-        let ordered = try events.enumerated().map { index, node -> (Int, Int, XMLElement) in
-            let value = node.name == "line" ? node.elements(forName: "lipsync").first.flatMap { attr($0, "timecode") } : attr(node, "timecode")
-            return (try time(value ?? "", fps: project.framesPerSecond), index, node)
-        }.sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }
-        events.forEach { $0.detach() }
-        ordered.forEach { body.addChild($0.2) }
+        var events: [XMLElement] = []
+        for child in body.children ?? [] {
+            guard let node = child as? XMLElement else { continue }
+            if node.name == "line" || node.name == "loop" || node.name == "shot" { events.append(node) }
+        }
+        var ordered: [(frame: Int, originalOrder: Int, node: XMLElement)] = []
+        for (index, node) in events.enumerated() {
+            let timestamp: String?
+            if node.name == "line", let firstSign = node.elements(forName: "lipsync").first {
+                timestamp = attr(firstSign, "timecode")
+            } else { timestamp = attr(node, "timecode") }
+            let frame = try time(timestamp ?? "", fps: project.framesPerSecond)
+            ordered.append((frame: frame, originalOrder: index, node: node))
+        }
+        ordered.sort { left, right in
+            if left.frame == right.frame { return left.originalOrder < right.originalOrder }
+            return left.frame < right.frame
+        }
+        for node in events { node.detach() }
+        for event in ordered { body.addChild(event.node) }
         return document.xmlData(options: [.nodePrettyPrint])
     }
 
