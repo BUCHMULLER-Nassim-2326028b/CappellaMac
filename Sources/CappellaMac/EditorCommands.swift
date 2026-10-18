@@ -270,7 +270,7 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                     // Plain-character menu equivalents must never steal a letter
                     // or a number from the on-band text editor.
                     if typing, !ctrl, let view = self.window?.firstResponder as? NSTextView {
-                        view.keyDown(event); return nil
+                        view.keyDown(with: event); return nil
                     }
                     return event
                 }
