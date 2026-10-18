@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CappellaSession
 
 func cappellaFunctionKey(_ number: Int) -> KeyEquivalent {
     KeyEquivalent(Character(UnicodeScalar(0xF704 + number - 1)!))
@@ -15,27 +16,33 @@ enum EditorAction {
     case moveTrack(Int), relativeTrack(Int), cancelPhrase, findNext, reaction(String), shiftAnchor(Int), detachSigns, jumpAnchor(Int), copyPhrase, cutPhrase, pastePhrase
 }
 
-struct EditorActions {
-    var perform: (EditorAction) -> Void
-    var hasSelection: Bool
-    var hasSign: Bool
-    var showGrid: Bool
-    var showDetection: Bool
-    var recording: Bool
-    var usingVI: Bool
-    var detectionMode: Bool
+/// Only state that affects the menus belongs here; the playback clock does not.
+struct EditorCommandState: Equatable {
+    var hasSelection = false
+    var hasSign = false
+    var showGrid = true
+    var showDetection = true
+    var recording = false
+    var usingVI = false
+    var detectionMode = false
 }
 
-private struct EditorActionsKey: FocusedValueKey { typealias Value = EditorActions }
-extension FocusedValues {
-    var editorActions: EditorActions? {
-        get { self[EditorActionsKey.self] }
-        set { self[EditorActionsKey.self] = newValue }
-    }
+/// One stable object per document prevents each video frame from publishing a
+/// new focused command value and rebuilding SwiftUI's menu hierarchy.
+final class EditorActions: ObservableObject {
+    var perform: (EditorAction) -> Void = { _ in }
+    @Published var state = EditorCommandState()
+    var hasSelection: Bool { state.hasSelection }
+    var hasSign: Bool { state.hasSign }
+    var showGrid: Bool { state.showGrid }
+    var showDetection: Bool { state.showDetection }
+    var recording: Bool { state.recording }
+    var usingVI: Bool { state.usingVI }
+    var detectionMode: Bool { state.detectionMode }
 }
 
 struct CappellaCommands: Commands {
-    @FocusedValue(\.editorActions) private var editor
+    @FocusedObject private var editor: EditorActions?
     private func run(_ action: EditorAction) { editor?.perform(action) }
     var body: some Commands {
         CappellaFileCommands()
@@ -200,7 +207,10 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                         case "*": action = .mute
                         case "2": action = .addSign("in_close")
                         case "3": action = .addSign("out_close")
-                        case "n", "o", "s", "z", "x", "c", "v", "a":
+                        case "n": ProjectSession.shared.newProject(); return nil
+                        case "o": ProjectSession.shared.chooseOpen(); return nil
+                        case "s": ProjectSession.shared.save(as: shift, copy: alt); return nil
+                        case "z", "x", "c", "v", "a":
                             // Windows muscle memory, forwarded to the native responder chain.
                             let selectors = ["n":"newDocument:", "o":"openDocument:", "s": shift ? "saveDocumentAs:" : alt ? "saveDocumentTo:" : "saveDocument:",
                                              "z": shift ? "redo:" : "undo:", "x":"cut:", "c":"copy:", "v":"paste:", "a":"selectAll:"]
@@ -282,21 +292,21 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
 }
 
 private struct CappellaFileCommands: Commands {
-    @FocusedValue(\.editorActions) private var editor
+    @FocusedObject private var editor: EditorActions?
     private func run(_ action: EditorAction) { editor?.perform(action) }
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Nouveau") { NSDocumentController.shared.newDocument(nil) }.keyboardShortcut("n")
-            Button("Ouvrir…") { NSDocumentController.shared.openDocument(nil) }.keyboardShortcut("o")
+            Button("Nouveau") { ProjectSession.shared.newProject() }.keyboardShortcut("n")
+            Button("Ouvrir…") { ProjectSession.shared.chooseOpen() }.keyboardShortcut("o")
         }
         CommandGroup(after: .newItem) {
-            Button("Ouvrir une sauvegarde…") { NSDocumentController.shared.openDocument(nil) }
+            Button("Ouvrir une sauvegarde…") { ProjectSession.shared.chooseOpen() }
         }
         CommandGroup(replacing: .printItem) {}
         CommandGroup(replacing: .saveItem) {
-            Button("Enregistrer") { NSApp.sendAction(Selector(("saveDocument:")), to: nil, from: nil) }.keyboardShortcut("s")
-            Button("Enregistrer sous…") { NSApp.sendAction(Selector(("saveDocumentAs:")), to: nil, from: nil) }.keyboardShortcut("s", modifiers: [.command, .shift])
-            Button("Enregistrer une copie sous…") { NSApp.sendAction(Selector(("saveDocumentTo:")), to: nil, from: nil) }.keyboardShortcut("s", modifiers: [.command, .option])
+            Button("Enregistrer") { ProjectSession.shared.save() }.keyboardShortcut("s")
+            Button("Enregistrer sous…") { ProjectSession.shared.save(as: true) }.keyboardShortcut("s", modifiers: [.command, .shift])
+            Button("Enregistrer une copie sous…") { ProjectSession.shared.save(copy: true) }.keyboardShortcut("s", modifiers: [.command, .option])
         }
         CommandGroup(after: .importExport) {
             Divider()

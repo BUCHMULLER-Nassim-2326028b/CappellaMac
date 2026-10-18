@@ -51,6 +51,12 @@ final class Transport: ObservableObject {
         }
     }
 
+    func close() {
+        loadTask?.cancel(); loadTask = nil; setRate(0)
+        player.replaceCurrentItem(with: nil); itemObservation = nil; preparedAudio = nil
+        scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }; scopedURLs.removeAll()
+    }
+
     func open(_ url: URL, sound: URL? = nil) {
         videoURL = url; soundURL = sound; loadMedia()
     }

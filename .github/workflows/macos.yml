@@ -20,6 +20,10 @@ jobs:
         run: |
           xcrun swiftc -parse-as-library Sources/CappellaMac/StereoAudioPreparation.swift scripts/check_audio_preparation.swift -o .build/check-audio
           .build/check-audio
+      - name: Check timeline text input
+        run: |
+          xcrun swiftc -parse-as-library Sources/CappellaMac/DialogueTextEditor.swift scripts/check_timeline_text.swift -o .build/check-text-input
+          .build/check-text-input
       - name: Build and package native app
         run: bash scripts/build-macos.sh
       - name: Launch empty editor on macOS 15

@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
 import CappellaCore
+import CappellaSession
 
 private enum EditorPanel: String, Identifiable {
     case shotDetection, chooseRole, roles, importRoles, properties, find, timecode, shift, timestamp, positions, preferences, validation
@@ -13,6 +14,7 @@ private enum EditorPanel: String, Identifiable {
 struct EditorView: View {
     @Binding var project: Project
     @StateObject private var transport = Transport()
+    @StateObject private var commandActions = EditorActions()
     @StateObject private var projection = ProjectionController()
     @StateObject private var recorder = AudioRecorder()
     @State private var shotTask: Task<Void, Never>?
@@ -51,6 +53,12 @@ struct EditorView: View {
     private var frame: Int { project.mediaStartFrame + Int((transport.seconds * Double(project.framesPerSecond)).rounded(.down)) }
     private var selectedCue: Cue? { project.cues.first { $0.id == selection } }
     private var orderedCues: [Cue] { project.cues.sorted { $0.start == $1.start ? $0.track < $1.track : $0.start < $1.start } }
+    private var commandState: EditorCommandState {
+        EditorCommandState(hasSelection: selection != nil, hasSign: selectedSign != nil,
+                           showGrid: showGrid, showDetection: showDetection,
+                           recording: recorder.recording, usingVI: transport.usingVI,
+                           detectionMode: detectionMode)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -64,11 +72,12 @@ struct EditorView: View {
                     videoPane.frame(minWidth: 350, maxWidth: .infinity, maxHeight: .infinity)
                 }
                 RythmoView(project: project, frame: frame, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize,
-                           showGrid: showGrid, showDetection: showDetection, selectedSign: selectedSign,
+                           showGrid: showGrid, showDetection: showDetection, selectedSign: selectedSign, selectedTrack: currentTrack,
                            seek: { target, track in
+                               if editingPhrase { finishPhrase() }
                                currentTrack = track; selectedSign = nil; seek(to: target)
                                selection = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target })?.id
-                           }, moveSign: moveSign)
+                           }, moveSign: moveSign, editCue: editTimelineCue)
                     .overlay(alignment: .topLeading) {
                         if editingPhrase, let cue = selectedCue {
                             timelineEditor(cue)
@@ -80,16 +89,18 @@ struct EditorView: View {
         .background(Color(white: 0.965))
         .preferredColorScheme(.light)
         .background(EditorKeyboardMonitor(perform: perform).frame(width: 0, height: 0))
-        .focusedSceneValue(\.editorActions, EditorActions(perform: perform, hasSelection: selection != nil, hasSign: selectedSign != nil,
-                                                        showGrid: showGrid, showDetection: showDetection, recording: recorder.recording, usingVI: transport.usingVI, detectionMode: detectionMode))
+        .focusedSceneObject(commandActions)
+        .onChange(of: commandState) { commandActions.state = $0 }
         .onAppear {
+            commandActions.perform = perform
+            commandActions.state = commandState
             for index in project.cues.indices where project.cues[index].signs == nil { project.cues[index].signs = project.cues[index].anchors }
             if let position = project.lastPositionFrame { seek(to: position) }
             if let path = project.videoPath, FileManager.default.fileExists(atPath: path) { transport.open(URL(fileURLWithPath: path), sound: validSoundURL) }
             else if let sound = validSoundURL { transport.openSound(sound) }
             StartupSmokeCheck.recordEditorAppearance(cueCount: project.cues.count)
         }
-        .onDisappear { transport.setRate(0); projection.close(); shotTask?.cancel() }
+        .onDisappear { commandActions.perform = { _ in }; transport.close(); projection.close(); shotTask?.cancel() }
         .sheet(item: $panel) { activePanel in panelView(activePanel) }
         .alert("Cappella", isPresented: Binding(get: { error != nil || transport.error != nil || recorder.error != nil }, set: {
             if !$0 { error = nil; transport.error = nil; recorder.error = nil }
@@ -380,7 +391,7 @@ struct EditorView: View {
                 finishPhrase()
             } else if let cue = project.cues.last(where: { $0.track == currentTrack && $0.start <= frame && $0.end >= frame }) {
                 selection = cue.id; if !newPhrase { originalPhrase = cue }
-                editingPhrase = true; detectionMode = false
+                beginEditing(cue, at: frame)
             } else { pendingEdit = true; addPhrase(kind: "in_open") }
         case .addSign(let kind): addSign(kind)
         case .deleteSign:
@@ -424,9 +435,21 @@ struct EditorView: View {
         transport.seek(frame: value - project.mediaStartFrame, fps: project.framesPerSecond)
     }
     private func select(_ cue: Cue, edit: Bool) {
+        if editingPhrase && selection != cue.id { finishPhrase() }
         selection = cue.id; currentTrack = cue.track; selectedSign = nil
         seek(to: cue.start)
-        if edit { originalPhrase = cue; newPhrase = false; editingPhrase = true; detectionMode = false; caret = 0 }
+        if edit { beginEditing(cue, at: cue.start) }
+    }
+    private func beginEditing(_ cue: Cue, at target: Int) {
+        transport.setRate(0)
+        if !editingPhrase || selection != cue.id { originalPhrase = cue; newPhrase = false }
+        selection = cue.id; currentTrack = cue.track; selectedSign = nil
+        caret = Timeline.textOffset(in: cue, at: target)
+        editingPhrase = true; detectionMode = false; seek(to: target)
+    }
+    private func editTimelineCue(_ id: UUID, _ target: Int) {
+        guard let cue = project.cues.first(where: { $0.id == id }) else { return }
+        beginEditing(cue, at: target)
     }
     private func addPhrase(kind: String) {
         transport.setRate(0)
@@ -482,6 +505,7 @@ struct EditorView: View {
     }
     private func moveSign(_ cueID: UUID, _ signID: UUID, _ target: Int) {
         guard let index = project.cues.firstIndex(where: { $0.id == cueID }) else { return }
+        currentTrack = project.cues[index].track
         selection = cueID; selectedSign = signID
         Timeline.moveSign(in: &project.cues[index], id: signID, to: target)
     }
@@ -583,21 +607,7 @@ struct EditorView: View {
         if audio { transport.openSound(url); project.audioPath = url.path }
         else { transport.open(url, sound: validSoundURL); project.videoPath = url.path }
     }
-    private func importDetX() {
-        if !project.cues.isEmpty {
-            let alert = NSAlert(); alert.messageText = "Remplacer la détection courante ?"
-            alert.informativeText = "Enregistrez votre travail avant de remplacer son contenu."
-            alert.addButton(withTitle: "Annuler"); alert.addButton(withTitle: "Remplacer")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
-        }
-        let picker = NSOpenPanel(); picker.allowedContentTypes = [.detx, .xml]
-        guard picker.runModal() == .OK, let url = picker.url else { return }
-        do {
-            let imported = try DetX.read(Data(contentsOf: url), fps: project.framesPerSecond)
-            transport.setRate(0); selection = nil; selectedSign = nil; editingPhrase = false; project = imported
-            seek(to: imported.lastPositionFrame ?? imported.mediaStartFrame)
-        } catch { self.error = error.localizedDescription }
-    }
+    private func importDetX() { ProjectSession.shared.chooseOpen() }
     private func exportData(type: UTType, name: String, data: () throws -> Data) {
         do {
             let contents = try data()

@@ -1,53 +1,35 @@
 import AppKit
+import CappellaSession
 
-/// Keep DocumentGroup's save/open behavior, but start with an empty editor
-/// rather than an Open panel when no document has been requested or restored.
+/// The Window scene creates the one editor. File events only replace its session.
+@MainActor
 final class StartupDelegate: NSObject, NSApplicationDelegate {
-    private var openingSmokeFixture = false
-    private var menuTimer: Timer?
-    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        false
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DispatchQueue.main.async { self.showEditorIfNeeded(); FrenchMenus.refresh() }
-        if menuTimer == nil {
-            let timer = Timer(timeInterval: 0.5, repeats: true) { _ in FrenchMenus.refresh() }
-            RunLoop.main.add(timer, forMode: .common); menuTimer = timer
-        }
-    }
-
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        guard !hasVisibleWindows else { return true }
-        DispatchQueue.main.async { self.showEditorIfNeeded(); FrenchMenus.refresh() }
-        if menuTimer == nil {
-            let timer = Timer(timeInterval: 0.5, repeats: true) { _ in FrenchMenus.refresh() }
-            RunLoop.main.add(timer, forMode: .common); menuTimer = timer
-        }
-        return false
-    }
-
-    private func showEditorIfNeeded() {
-        let controller = NSDocumentController.shared
-        if let path = ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_FIXTURE"] {
-            guard !openingSmokeFixture else { return }
-            openingSmokeFixture = true
-            controller.openDocument(withContentsOf: URL(fileURLWithPath: path), display: true) { _, _, error in
-                if let error { FileHandle.standardError.write(Data("Fixture: \(error)\n".utf8)) }
-                NSApplication.shared.activate(ignoringOtherApps: true)
+        FrenchMenus.install()
+        DispatchQueue.main.async {
+            if let path = ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_FIXTURE"] {
+                if !ProjectSession.shared.open(URL(fileURLWithPath: path)) {
+                    FileHandle.standardError.write(Data("Impossible d'ouvrir la fixture.\n".utf8))
+                }
             }
-            return
+            FrenchMenus.refresh()
         }
-        if !controller.documents.isEmpty {
-            controller.documents.forEach { $0.showWindows() }
-            return
+    }
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        ProjectSession.shared.open(URL(fileURLWithPath: filename))
+    }
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        for filename in filenames {
+            if !ProjectSession.shared.open(URL(fileURLWithPath: filename)) { sender.reply(toOpenOrPrint: .cancel); return }
         }
-        do {
-            _ = try controller.openUntitledDocumentAndDisplay(true)
-            NSApplication.shared.activate(ignoringOtherApps: true)
-        } catch {
-            NSApplication.shared.presentError(error)
-        }
+        sender.reply(toOpenOrPrint: .success)
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { ProjectSession.shared.showWindow() }
+        return true
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        ProjectSession.shared.prepareToTerminate() ? .terminateNow : .terminateCancel
     }
 }
 
@@ -57,9 +39,10 @@ enum StartupSmokeCheck {
     static func recordEditorAppearance(cueCount: Int) {
         guard let path = ProcessInfo.processInfo.environment["CAPPELLA_SMOKE_TEST_MARKER"] else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            guard NSApplication.shared.windows.contains(where: { $0.isVisible && $0.contentView != nil }) else { return }
+            guard ProjectSession.shared.visibleEditorWindowCount == 1 else { return }
+            let count = ProjectSession.shared.project.cues.count
             do {
-                try "editor-visible:\(cueCount)\n".write(toFile: path, atomically: true, encoding: .utf8)
+                try "editor-visible:\(count)\n".write(toFile: path, atomically: true, encoding: .utf8)
             } catch {
                 FileHandle.standardError.write(Data("Smoke test marker: \(error)\n".utf8))
             }

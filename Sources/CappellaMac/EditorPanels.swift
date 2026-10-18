@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import CappellaCore
+import CappellaSession
 
 struct RolesPanel: View {
     @Binding var project: Project
@@ -241,65 +242,6 @@ struct RoleImportPanel: View {
             }
         }.padding(20).frame(width: 450, height: 430)
         .onAppear { selected = Set(candidates.filter { !exists($0) }.map(\.id)) }
-    }
-}
-
-/// Exposes the insertion position in characters to anchor a lipsync sign to text.
-struct DialogueTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var caret: Int
-    var fontName = "Apple Chancery"
-    var fontSize = 28.0
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = false; scroll.hasHorizontalScroller = false; scroll.borderType = .noBorder; scroll.drawsBackground = true; scroll.backgroundColor = .black
-        let view = FocusedTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 70)); view.isRichText = false; view.allowsUndo = true
-        view.font = NSFont(name: fontName, size: fontSize) ?? .systemFont(ofSize: fontSize)
-        view.backgroundColor = .black; view.textColor = .white; view.insertionPointColor = .white
-        view.textContainerInset = NSSize(width: 2, height: 0)
-        view.isAutomaticQuoteSubstitutionEnabled = false; view.isAutomaticDashSubstitutionEnabled = false
-        view.isVerticallyResizable = true; view.isHorizontallyResizable = false
-        view.autoresizingMask = [.width]; view.textContainer?.widthTracksTextView = true
-        view.minSize = NSSize(width: 0, height: 0)
-        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        view.string = text; view.delegate = context.coordinator; scroll.documentView = view
-        return scroll
-    }
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        context.coordinator.parent = self
-        guard let view = scroll.documentView as? NSTextView else { return }
-        let scalars = view.string.unicodeScalars
-        let position = scalars.index(scalars.startIndex, offsetBy: min(caret, scalars.count))
-        let utf16Position = NSRange(view.string.startIndex..<position, in: view.string).length
-        if view.selectedRange().length == 0 && view.selectedRange().location != utf16Position {
-            context.coordinator.updating = true; view.setSelectedRange(NSRange(location: utf16Position, length: 0)); context.coordinator.updating = false
-        }
-        if view.string != text {
-            context.coordinator.updating = true; view.string = text; context.coordinator.updating = false
-        }
-    }
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: DialogueTextEditor
-        var updating = false
-        init(_ parent: DialogueTextEditor) { self.parent = parent }
-        func textDidChange(_ notification: Notification) {
-            guard !updating, let view = notification.object as? NSTextView else { return }
-            parent.text = view.string
-        }
-        func textViewDidChangeSelection(_ notification: Notification) {
-            guard !updating, let view = notification.object as? NSTextView,
-                  let range = Range(NSRange(location: 0, length: view.selectedRange().location), in: view.string) else { return }
-            parent.caret = view.string[range].unicodeScalars.count
-        }
-    }
-    final class FocusedTextView: NSTextView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard window != nil else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }; self.window?.makeFirstResponder(self)
-            }
-        }
     }
 }
 

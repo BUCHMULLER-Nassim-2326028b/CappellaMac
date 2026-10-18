@@ -2,39 +2,24 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import CappellaCore
-
-extension UTType {
-    static let cappellaProject = UTType(exportedAs: "org.cappella-rewrite.project", conformingTo: .json)
-    static let detx = UTType(importedAs: "org.cappella-rewrite.detx", conformingTo: .xml)
-}
-
-struct ProjectDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.detx, .cappellaProject] }
-    var project: Project
-    init(project: Project = Project()) { self.project = project }
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
-        if configuration.contentType.conforms(to: .detx) { project = try DetX.read(data) }
-        else { project = try Project.decode(data) }
-    }
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let data: Data
-        if configuration.contentType.conforms(to: .detx) { data = try DetX.write(project) }
-        else { data = try project.encode() }
-        return FileWrapper(regularFileWithContents: data)
-    }
-}
+import CappellaSession
 
 @main
+@MainActor
 struct CappellaMacApp: App {
     @NSApplicationDelegateAdaptor(StartupDelegate.self) private var startupDelegate
+    @StateObject private var session = ProjectSession.shared
 
     init() { UserDefaults.standard.set(["fr"], forKey: "AppleLanguages") }
 
     var body: some Scene {
-        DocumentGroup(newDocument: ProjectDocument()) { file in
-            EditorView(project: file.$document.project)
+        Window("Cappella", id: "editor") {
+            EditorView(project: $session.project)
+                .id(session.identity)
                 .frame(minWidth: 1000, minHeight: 620)
+                .background(EditorWindowBridge(session: session).frame(width: 0, height: 0))
+                .navigationTitle(session.windowTitle)
+                .onOpenURL { session.open($0) }
         }
         .defaultSize(width: 1420, height: 744)
         .commands {

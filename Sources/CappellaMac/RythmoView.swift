@@ -10,9 +10,12 @@ struct RythmoView: View {
     var showGrid: Bool
     var showDetection: Bool
     var selectedSign: UUID?
+    var selectedTrack: Int? = nil
     var seek: (Int, Int) -> Void = { _, _ in }
     var moveSign: (UUID, UUID, Int) -> Void = { _, _, _ in }
+    var editCue: (UUID, Int) -> Void = { _, _ in }
     @State private var dragging = false
+    @State private var didDrag = false
     @State private var dragReferenceFrame = 0
     @State private var dragSignFrame = 0
     @State private var draggedSign: (UUID, UUID)?
@@ -27,7 +30,7 @@ struct RythmoView: View {
             Canvas { context, size in
                 for track in 0..<4 {
                     let rect = CGRect(x: 0, y: CGFloat(track) * laneHeight, width: size.width, height: laneHeight)
-                    let colors: [Color] = track == 0 ? [Color(white: 0.99), Color(white: 0.90)] : [Color(white: 0.68), Color(white: 0.59)]
+                    let colors: [Color] = track == selectedTrack ? [Color(white: 0.99), Color(white: 0.90)] : [Color(white: 0.68), Color(white: 0.59)]
                     context.fill(Path(rect), with: .linearGradient(Gradient(colors: colors), startPoint: rect.origin, endPoint: CGPoint(x: 0, y: rect.maxY)))
                 }
                 if showGrid {
@@ -123,7 +126,7 @@ struct RythmoView: View {
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
                 let track = min(3, max(0, Int(value.startLocation.y / laneHeight)))
                 if !dragging {
-                    dragging = true
+                    dragging = true; didDrag = false
                     dragReferenceFrame = frame
                     if showGrid {
                         for cue in project.cues where cue.track == track {
@@ -133,12 +136,24 @@ struct RythmoView: View {
                         }
                     }
                 }
+                if abs(value.translation.width) > 3 || abs(value.translation.height) > 3 { didDrag = true }
                 let target = max(0, dragReferenceFrame + Int(((value.location.x - cursor) / scale).rounded()))
                 if let (cueID, signID) = draggedSign {
                     moveSign(cueID, signID, max(0, dragSignFrame + Int((value.translation.width / scale).rounded())))
                 }
                 else { seek(target, track) }
-            }.onEnded { _ in dragging = false; draggedSign = nil })
+            }.onEnded { value in
+                // Use the frame from mouse-down: scrubbing may already have
+                // changed the displayed frame before this click is released.
+                if !didDrag {
+                    let track = min(3, max(0, Int(value.startLocation.y / laneHeight)))
+                    let target = max(0, dragReferenceFrame + Int(((value.startLocation.x - cursor) / scale).rounded()))
+                    if let cue = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target }) {
+                        editCue(cue.id, target)
+                    }
+                }
+                dragging = false; draggedSign = nil; didDrag = false
+            })
         }
         .clipped()
         .accessibilityLabel("Bande rythmo, quatre pistes, \(Timecode.format(frame, fps: project.framesPerSecond))")
