@@ -1,4 +1,4 @@
-# Cappella Mac — réécriture native en cours
+# Cappella Mac - portage Mac OS
 
 Objectif : reproduire Cappella 3.7 sur Mac Apple Silicon. Ce projet est une
 **première implémentation expérimentale, pas encore compilée ni exécutée sur macOS**.
