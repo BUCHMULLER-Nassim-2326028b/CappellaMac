@@ -25,7 +25,7 @@ struct ProjectDocument: FileDocument {
 struct CappellaMacApp: App {
     var body: some Scene {
         DocumentGroup(newDocument: ProjectDocument()) { file in
-            EditorView(project: $file.document.project)
+            EditorView(project: file.$document.project)
                 .frame(minWidth: 1050, minHeight: 720)
         }
         .commands {
