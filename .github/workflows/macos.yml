@@ -18,8 +18,16 @@ jobs:
         run: swift test --arch arm64
       - name: Build and package native app
         run: bash scripts/build-macos.sh
-      - name: Launch packaged release app on macOS 15
-        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app"
+      - name: Launch empty editor on macOS 15
+        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app" --screenshot dist/previews/empty.png
+      - name: Open DetX with intermediate signs on macOS 15
+        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app" --fixture Tests/Fixtures/layout.detx --screenshot dist/previews/detx.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CappellaMac-previews-macos-15
+          path: dist/previews/*.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: CappellaMac-arm64
@@ -36,5 +44,13 @@ jobs:
           path: dist
       - name: Extract app built on macOS 15
         run: ditto -x -k dist/CappellaMac-arm64.zip dist
-      - name: Launch same release app on macOS 26
-        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app"
+      - name: Launch empty editor on macOS 26
+        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app" --screenshot dist/previews/empty.png
+      - name: Open DetX with intermediate signs on macOS 26
+        run: python3 scripts/smoke_macos.py "dist/Cappella Mac.app" --fixture Tests/Fixtures/layout.detx --screenshot dist/previews/detx.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CappellaMac-previews-macos-26
+          path: dist/previews/*.png
+          if-no-files-found: ignore

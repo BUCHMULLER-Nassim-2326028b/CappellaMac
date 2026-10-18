@@ -1,36 +1,93 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-    <key>CFBundleName</key><string>Cappella Mac</string>
-    <key>CFBundleDisplayName</key><string>Cappella Mac — Prototype</string>
-    <key>CFBundleIdentifier</key><string>org.cappella-rewrite.mac</string>
-    <key>CFBundleExecutable</key><string>CappellaMac</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.1</string>
-    <key>CFBundleVersion</key><string>2</string>
-    <key>LSMinimumSystemVersion</key><string>13.0</string>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>CFBundleDocumentTypes</key><array><dict>
-        <key>CFBundleTypeName</key><string>Projet Cappella Mac</string>
-        <key>CFBundleTypeRole</key><string>Editor</string>
-        <key>LSHandlerRank</key><string>Owner</string>
-        <key>LSItemContentTypes</key><array><string>org.cappella-rewrite.project</string></array>
-    </dict></array>
-    <key>UTExportedTypeDeclarations</key><array><dict>
-        <key>UTTypeIdentifier</key><string>org.cappella-rewrite.project</string>
-        <key>UTTypeDescription</key><string>Projet Cappella Mac</string>
-        <key>UTTypeConformsTo</key><array><string>public.json</string></array>
-        <key>UTTypeTagSpecification</key><dict>
-            <key>public.filename-extension</key><array><string>cappellaproject</string></array>
-        </dict>
-    </dict></array>
-    <key>UTImportedTypeDeclarations</key><array><dict>
-        <key>UTTypeIdentifier</key><string>org.cappella-rewrite.detx</string>
-        <key>UTTypeDescription</key><string>Document Cappella DetX</string>
-        <key>UTTypeConformsTo</key><array><string>public.xml</string></array>
-        <key>UTTypeTagSpecification</key><dict>
-            <key>public.filename-extension</key><array><string>detx</string></array>
-        </dict>
-    </dict></array>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Cappella Mac</string>
+	<key>CFBundleDisplayName</key>
+	<string>Cappella Mac</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.cappella-rewrite.mac</string>
+	<key>CFBundleExecutable</key>
+	<string>CappellaMac</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2.0</string>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Détection Cappella DetX</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.cappella-rewrite.detx</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Projet Cappella Mac</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.cappella-rewrite.project</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.cappella-rewrite.project</string>
+			<key>UTTypeDescription</key>
+			<string>Projet Cappella Mac</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>cappellaproject</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.cappella-rewrite.detx</string>
+			<key>UTTypeDescription</key>
+			<string>Document Cappella DetX</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>detx</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,54 @@
+import Foundation
+
+public struct TimedText: Equatable {
+    public var start: Int
+    public var end: Int
+    public var text: String
+}
+
+public enum Timeline {
+    public static func segments(_ cue: Cue) -> [TimedText] {
+        let anchors = cue.anchors
+        return zip(anchors, anchors.dropFirst()).compactMap { left, right in
+            guard right.frame > left.frame, left.textOffset >= 0,
+                  right.textOffset <= cue.text.unicodeScalars.count, right.textOffset > left.textOffset else { return nil }
+            let scalars = cue.text.unicodeScalars
+            let a = scalars.index(scalars.startIndex, offsetBy: left.textOffset)
+            let b = scalars.index(scalars.startIndex, offsetBy: right.textOffset)
+            return TimedText(start: left.frame, end: right.frame, text: String(scalars[a..<b]))
+        }
+    }
+
+    public static func textOffset(in cue: Cue, at frame: Int) -> Int {
+        let anchors = cue.anchors
+        guard let left = anchors.last(where: { $0.frame <= frame }) else { return 0 }
+        guard let right = anchors.first(where: { $0.frame > frame }) else { return cue.text.unicodeScalars.count }
+        let fraction = Double(frame - left.frame) / Double(max(1, right.frame - left.frame))
+        return left.textOffset + Int((Double(right.textOffset - left.textOffset) * fraction).rounded())
+    }
+
+    public static func addSign(to cue: inout Cue, kind: String, frame: Int, textOffset: Int) throws {
+        guard frame > cue.start, frame < cue.end, textOffset >= 0, textOffset <= cue.text.unicodeScalars.count else {
+            throw ProjectError.invalid("Placer le signe à l'intérieur de la phrase.")
+        }
+        var signs = cue.anchors
+        let index = signs.firstIndex(where: { $0.frame > frame }) ?? signs.count - 1
+        guard signs[index - 1].textOffset <= textOffset, signs[index].textOffset >= textOffset else {
+            throw ProjectError.invalid("Le signe doit respecter l'ordre du texte. Positionnez le curseur dans le texte.")
+        }
+        signs.insert(SyncSign(frame: frame, textOffset: textOffset, kind: kind), at: index)
+        cue.signs = signs
+    }
+
+    public static func moveSign(in cue: inout Cue, id: UUID, to frame: Int) {
+        var signs = cue.anchors
+        guard let index = signs.firstIndex(where: { $0.id == id }) else { return }
+        let lower = index == 0 ? 0 : signs[index - 1].frame
+        let upper = index + 1 == signs.count ? max(frame, signs[index - 1].frame + 1) : signs[index + 1].frame
+        let value = min(max(frame, lower), upper)
+        if index == 0 { signs[index].frame = min(value, cue.end - 1); cue.start = signs[index].frame }
+        else if index == signs.count - 1 { signs[index].frame = max(value, cue.start + 1); cue.end = signs[index].frame }
+        else { signs[index].frame = value }
+        cue.signs = signs
+    }
+}

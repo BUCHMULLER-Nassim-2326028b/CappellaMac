@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<detx>
+  <header>
+    <title>Scène de vérification</title>
+    <cappella version="3.7.0"/>
+    <videofile timestamp="10:00:00:00"/>
+    <last_position timecode="10:00:03:00" track="0"/>
+  </header>
+  <roles>
+    <role id="enfant" name="Enfant" color="#000000"/>
+    <role id="parent" name="Parent" color="#000000"/>
+  </roles>
+  <body>
+    <loop number="1" timecode="10:00:00:00"/>
+    <line role="parent" track="1"><lipsync type="in_open" timecode="10:00:00:00"/><text>Tu as trouvé la source du problème.</text><lipsync type="out_open" timecode="10:00:08:00"/></line>
+    <line role="enfant" track="0"><lipsync type="in_open" timecode="10:00:02:00"/><text>Merci </text><lipsync type="mpb" timecode="10:00:03:05"/><text>maman.</text><lipsync type="out_open" timecode="10:00:05:00"/></line>
+    <shot timecode="10:00:04:00"/>
+    <line role="enfant" track="2"><lipsync type="in_open" timecode="10:00:06:00"/><text>(course)</text><lipsync type="out_open" timecode="10:00:08:00"/></line>
+    <loop number="2" timecode="10:00:10:00"/>
+  </body>
+</detx>

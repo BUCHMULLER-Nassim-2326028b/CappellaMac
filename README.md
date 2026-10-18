@@ -1,19 +1,54 @@
-# Cappella Mac - portage Mac OS
+# Cappella Mac — réécriture native visant la parité avec Cappella 3.7
 
-Objectif : reproduire Cappella 3.7 sur Mac Apple Silicon. Ce projet est une
-**première implémentation expérimentale**. La compilation ARM64 a été effectuée via
-GitHub Actions. Un crash à l’ouverture de l’éditeur sur macOS 26.5 a été signalé ;
-la version 0.1.1 remplace la vue vidéo concernée, avec validation à refaire.
-Il ne constitue pas encore un remplacement complet du logiciel.
+Le premier prototype démarre sur Mac Apple Silicon. La version 0.2.0 reprend
+la disposition de Cappella Windows et étend l'édition et la synchronisation.
+**La parité complète avec le programme d'origine n'est pas encore atteinte.**
+Sans les sources C++, il s'agit d'une réécriture Swift fondée sur les fichiers,
+ressources et comportements observés, pas d'une recompilation du code original.
 
-Swift, SwiftUI et AVFoundation ; aucune dépendance de paquet externe.
-Cible minimale : macOS 13. Architecture distribuable : ARM64.
-L'exécutable Windows n'est pas utilisé par l'application Swift.
+## Espace de travail
 
-## Compiler sur le Mac de ton collègue
+Script à gauche, vidéo à droite, cartouche sous le script et quatre pistes de
+bande rythmo en bas. Sans vidéo, l'image de mire d'origine est affichée.
+Le curseur est centré, et le texte est étiré entre les signes de synchronisation.
+Voir la [référence visuelle](docs/REFERENCE_LAYOUT.md).
 
-Installer Xcode, l'ouvrir une fois pour terminer l'installation, puis ouvrir le
-Terminal dans ce dossier et exécuter :
+Les réglages passent par les menus : Contrôle, Position, Affichage, Audio,
+Rôles, Propriétés, Recherche et Préférences. Double-cliquer sur une phrase pour
+modifier son texte, son rôle, sa piste et ses bornes. Glisser un signe dans la
+rythmo pour le déplacer. Les raccourcis de navigation ne capturent pas les
+espaces ni les flèches pendant la saisie de texte.
+
+Le timecode et la lecture fonctionnent aussi sans vidéo attachée.
+La lecture inverse du transport est réalisée par recherche d'images et reste
+à mesurer en conditions réelles. La piste VI externe suppose un fichier audio
+aligné sur le début du média ; il n'y a pas encore de compensation matérielle.
+
+## Documents et fonctions écrites
+
+- Ouverture/enregistrement de `.detx` directement depuis le menu Fichier.
+- Format de travail `.cappellaproject`, avec XML source conservé.
+- Dialogues à plusieurs séquences texte/lipsync ; préservation des types importés.
+- Création et déplacement des signes d'ouverture/fermeture, MPB, FVR, neutre et weuque.
+- Rôles, couleurs, portraits, descriptions, genre ; propriétés du programme et de production.
+- Navigation par phrase, rôle, signe, boucle et plan ; ajout de boucles et plans.
+- Recherche par rôle, casse et mots entiers ; vérification des bornes et chevauchements.
+- Décalage de la rythmo et changement du timestamp avec déplacement cohérent des signes.
+- Positions mémorisées ; script RTF et croisillé CSV.
+- Volume, sourdine, alternance VO/VI et fenêtre de contrôle indépendante.
+
+Cette liste décrit l'implémentation, pas une certification de comportement 1:1.
+Voir [PORTAGE.md](docs/PORTAGE.md) pour les limites, notamment sous-titres UER,
+enregistrement, matériel Orphée/FTDI et fidélité exacte du rendu.
+
+Le fichier DetX fourni ne déclare pas sa cadence. L'ouverture utilise 25 i/s par
+défaut ; ce choix doit être confirmé avec le média. Le fichier vidéo doit être
+relié manuellement : un chemin Windows n'est pas une URL macOS.
+
+## Compiler
+
+Sur un Mac Apple Silicon sous macOS 13 ou plus, avec Xcode installé et ouvert
+une fois, lancer à la racine :
 
 ```sh
 swift test --arch arm64
@@ -21,65 +56,31 @@ bash scripts/build-macos.sh
 open "dist/Cappella Mac.app"
 ```
 
-Si une commande échoue, conserver le message d'erreur complet pour correction.
-
 Le script produit `dist/Cappella Mac.app` et `dist/CappellaMac-arm64.zip`.
-La signature est locale/ad hoc ; la distribution Developer ID et la notarisation
-ne sont pas configurées. Une archive téléchargée peut être bloquée par macOS.
+La signature est ad hoc ; la notarisation et la signature Developer ID ne sont
+pas configurées.
 
-## Compiler sans Mac personnel
+Depuis Windows, pousser les sources sur GitHub déclenche le workflow
+`Native macOS ARM64`. Il compile et teste sur macOS 15, puis ouvre le même binaire
+sur macOS 26. Les tests de lancement exigent que l'éditeur apparaisse, avec et
+sans DetX. Des aperçus PNG sont proposés si la capture d'écran du runner est autorisée.
+Télécharger l'artefact `CappellaMac-arm64` après réussite des deux jobs.
 
-Le workflow [.github/workflows/macos.yml](.github/workflows/macos.yml) prévoit les
-tests et le packaging sur un runner Apple Silicon `macos-15`. Après dépôt des
-sources sur GitHub, lancer « Native macOS ARM64 » dans Actions et télécharger
-l’artefact. Le workflow lance aussi le `.app` produit sur macOS 15 puis le même
-binaire sur macOS 26. Il vérifie que l’éditeur devient visible et reste ouvert ;
-une compilation réussie seule ne suffit plus. Ces nouveaux contrôles restent
-à exécuter après le push de la correction.
+## Validation
 
-## Essayer un DetX
+La version 0.1.1 a été confirmée comme fonctionnant par l'utilisateur.
+Les nouvelles modifications 0.2.0 doivent encore passer les tests et la comparaison
+visuelle sur Mac. Les tests Swift ne sont pas exécutables sur le poste Windows actuel.
 
-1. Au démarrage, un document vide doit apparaître. Choisir la cadence avant l’import (25 i/s par défaut).
-2. Cliquer sur « Importer un DetX… » et sélectionner une copie du fichier.
-3. Ouvrir la vidéo correspondante : les anciens chemins Windows ne sont pas résolus sur Mac.
-4. Modifier les textes, rôles et bornes temporelles.
-5. Enregistrer avec Cmd+S au format de travail `.cappellaproject`.
-6. Exporter vers un **nouveau** `.detx`, puis vérifier sa réouverture dans Cappella Windows.
-
-Le document de travail conserve le XML importé, portraits et métadonnées compris.
-L'import prend en charge le profil de phrase `lipsync / text / lipsync` observé
-dans l'exemple fourni. Les structures plus riches sont refusées à l'import.
-Les rôles source inutilisés restent dans l'export pour conserver leurs données.
-La sérialisation XML n'est pas identique octet par octet.
-La compatibilité de l'export avec Cappella Windows reste à vérifier.
-
-Le média doit être sélectionné à chaque session. La bande rythmo place les phrases
-dans le temps ; elle ne reproduit pas encore l'étirement et l'alignement labial
-de Cappella. La projection est une prévisualisation dans une feuille, pas une
-sortie indépendante sur un deuxième écran.
-
-## Tests et analyse
-
-Pour tester un DetX réel localement sur Mac sans le publier :
+Pour tester un vrai fichier local sur Mac sans le publier :
 
 ```sh
-CAPPELLA_DETX_PATH="/chemin/Elliott from Earth#107.detx" swift test --arch arm64
+CAPPELLA_DETX_PATH="/chemin/exemple.detx" swift test --arch arm64
 ```
 
-L'audit structurel Python fonctionne aussi sous Windows, en lecture seule :
+L'export doit être vérifié dans Cappella Windows sur une copie, en particulier
+pour les signes, les positions mémorisées et les attributs de voix off.
 
-```powershell
-python scripts/inspect_detx.py 'C:\chemin\fichier.detx' --fps 25
-```
-
-Le fichier fourni ne déclare pas sa cadence. 25 i/s est une hypothèse compatible
-avec ses timecodes, pas une valeur confirmée par le XML.
-Les tests Swift n'ont pas été exécutés dans cet environnement Windows sans Swift.
-
-L'[état du portage](docs/PORTAGE.md) détaille ce qui reste à reproduire.
-Les fichiers historiques dans `assets/` sont exclus du build Swift et du suivi Git.
-Le DetX privé reste dans son emplacement d'origine, hors du projet.
-
-Références : [Swift Package Manager](https://docs.swift.org/main/documentation/packagemanagerdocs/),
-[documents SwiftUI](https://developer.apple.com/documentation/SwiftUI/DocumentGroup),
-[runners GitHub](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+`assets/` contient l'installation Windows et reste ignoré par Git. La mire est
+copiée dans `packaging/Resources/` pour être incluse dans l'application native.
+Le logiciel natif ne charge ni l'exécutable Windows ni ses DLL.

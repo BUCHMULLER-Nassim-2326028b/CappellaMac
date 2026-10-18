@@ -9,7 +9,7 @@ struct NativeVideoView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView(frame: .zero)
-        view.controlsStyle = .inline
+        view.controlsStyle = .none
         view.showsFrameSteppingButtons = true
         view.showsSharingServiceButton = false
         view.player = player

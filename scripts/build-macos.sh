@@ -11,6 +11,8 @@ app_path="$PWD/dist/Cappella Mac.app"
 mkdir -p "$app_path/Contents/MacOS"
 cp "$bin_path/CappellaMac" "$app_path/Contents/MacOS/CappellaMac"
 cp packaging/Info.plist "$app_path/Contents/Info.plist"
+mkdir -p "$app_path/Contents/Resources"
+cp packaging/Resources/Mire.jpg "$app_path/Contents/Resources/Mire.jpg"
 chmod +x "$app_path/Contents/MacOS/CappellaMac"
 plutil -lint "$app_path/Contents/Info.plist"
 [[ "$(lipo -archs "$app_path/Contents/MacOS/CappellaMac")" == "arm64" ]]

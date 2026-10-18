@@ -48,8 +48,8 @@ final class CoreTests: XCTestCase {
 
     func testExportEditsAndPreservesUnexposedData() throws {
         var project = try DetX.read(fixture)
-        project.cues[0].text = "Ça <marche> & voilà !"
-        project.cues[0].start += 2
+        project.cues[0].replaceText("Ça <marche> & voilà !")
+        try project.cues[0].setBounds(start: project.cues[0].start + 2, end: project.cues[0].end)
         project.roles[0].name = "Alice modifiée"
         let output = try DetX.write(project)
         let reloaded = try DetX.read(output)
