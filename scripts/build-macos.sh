@@ -10,6 +10,9 @@ bin_path="$(swift build -c release --arch arm64 --show-bin-path)"
 app_path="$PWD/dist/Cappella.app"
 mkdir -p "$app_path/Contents/MacOS"
 cp "$bin_path/CappellaMac" "$app_path/Contents/MacOS/CappellaMac"
+# Strip debugger data only from the distributed copy, before code signing.
+# Keep Swift runtime metadata and the original build product for diagnostics.
+xcrun strip -S "$app_path/Contents/MacOS/CappellaMac"
 cp packaging/Info.plist "$app_path/Contents/Info.plist"
 mkdir -p "$app_path/Contents/Resources"
 cp packaging/Resources/Mire.jpg "$app_path/Contents/Resources/Mire.jpg"

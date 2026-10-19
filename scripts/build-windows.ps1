@@ -41,13 +41,20 @@ try {
     $app = Join-Path $repo 'dist/Cappella-Windows-x64'
     New-Item -ItemType Directory -Force -Path "$app/Resources", "$app/Licenses" | Out-Null
     Copy-Item -LiteralPath (Join-Path $bin 'CappellaWindows.exe') -Destination "$app/Cappella.exe"
+    if ($Configuration -eq 'release') {
+        Remove-WindowsDistributionDebugInfo -Executable "$app/Cappella.exe" -SwiftExecutable $swiftExe
+    }
     Copy-Item -Path "$repo/packaging/Resources/*" -Destination "$app/Resources"
     Copy-Item -LiteralPath "$repo/.windows/microsoft.windowsappsdk.1.7.250909003/runtimes/win-x64/native/Microsoft.WindowsAppRuntime.Bootstrap.dll" -Destination $app
     # Swift DLLs must travel with the app; do not rely on the developer's PATH.
     $swiftRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path $swiftExe -Parent) '../../../..'))
     $runtime = Get-ChildItem -LiteralPath (Join-Path $swiftRoot 'Runtimes') -Recurse -Filter 'swiftCore.dll' | Sort-Object FullName -Descending | Select-Object -First 1
     if (!$runtime) { throw "Runtime Swift introuvable sous $swiftRoot/Runtimes." }
-    Copy-Item -Path (Join-Path $runtime.DirectoryName '*.dll') -Destination $app
+    if ($Configuration -eq 'release') {
+        Copy-WindowsRuntimeDependencies -RuntimeDirectory $runtime.DirectoryName -ApplicationDirectory $app -SwiftExecutable $swiftExe
+    } else {
+        Copy-Item -Path (Join-Path $runtime.DirectoryName '*.dll') -Destination $app
+    }
     Copy-Item -Path "$repo/windows/*LICENSE*", "$repo/windows/THIRD-PARTY-NOTICES.md" -Destination "$app/Licenses"
     foreach ($package in @('microsoft.windowsappsdk.1.7.250909003','microsoft.windows.sdk.contracts.10.0.22621.3233','microsoft.web.webview2.1.0.2903.40')) {
         Get-ChildItem -LiteralPath "$repo/.windows/$package" -File | Where-Object Name -Match 'license|notice' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination "$app/Licenses/$package-$($_.Name)" }
@@ -62,6 +69,8 @@ try {
         }
     }
     Compress-Archive -LiteralPath $app -DestinationPath "$repo/dist/Cappella-Windows-x64.zip" -Force
+    $distributionBytes = (Get-ChildItem -LiteralPath $app -Recurse -File | Measure-Object Length -Sum).Sum
+    Write-Host ('Distribution décompressée : {0:N1} Mio.' -f ($distributionBytes / 1MB))
     Write-Host "Application : $app/Cappella.exe"
     Write-Host "Archive : $repo/dist/Cappella-Windows-x64.zip"
 } finally { Pop-Location }

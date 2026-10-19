@@ -110,3 +110,22 @@ l'image GitHub windows-2022. En local, -Compiler permet d'indiquer ISCC.exe.
 Le Setup n'est pas signé avec un certificat éditeur ; sa génération ne supprime
 pas les éventuels avertissements SmartScreen. Les contrôles CI actuels lancent
 l'application ; ils ne valident pas encore un cycle installation/désinstallation.
+
+## Taille des distributions
+
+Les builds release éliminent le code non référencé et fusionnent les fonctions
+identiques à l'édition des liens (OPT:REF et OPT:ICF). Le packaging retire ensuite
+les sections de débogage de la copie distribuée, avant l'ajout de l'icône.
+L'exécutable original et ses informations de débogage restent dans .build.
+Les métadonnées Swift de réflexion, les tables de déroulement de pile et les
+ressources de l'application sont conservées.
+
+Les DLL sont sélectionnées à partir des imports normaux et différés, en parcourant
+leurs dépendances transitives. Les modules Foundation, ICU, les composants de
+diagnostic Swift et les bibliothèques VC++ sont conservés pour les chargements
+dynamiques. Les DLL éditeur ne sont pas modifiées. Les builds debug conservent
+toutes les DLL et leurs informations de débogage.
+
+Le ZIP et le Setup réutilisent le même dossier allégé. Le Setup contient en plus
+l'installateur Microsoft du Windows App Runtime ; ce poids ne fait pas partie de
+l'application installée. Le script affiche la taille finale décompressée.

@@ -25,7 +25,12 @@ if FileManager.default.fileExists(atPath: root.appendingPathComponent(".windows/
         .target(name: "CWindowsInterop", linkerSettings: [.linkedLibrary("ole32"), .linkedLibrary("shell32")]),
         .executableTarget(name: "CappellaWindows", dependencies: ["CappellaCore", "CWindowsInterop",
             .product(name: "WinUI", package: "Projections"), .product(name: "UWP", package: "Projections"),
-            .product(name: "WinAppSDK", package: "Projections"), .product(name: "WindowsFoundation", package: "Projections")]),
+            .product(name: "WinAppSDK", package: "Projections"), .product(name: "WindowsFoundation", package: "Projections")
+        ], linkerSettings: [
+            // Debug information otherwise disables these standard COFF release
+            // optimizations. Keep referenced Swift/WinRT metadata and factories.
+            .unsafeFlags(["-Xlinker", "/OPT:REF", "-Xlinker", "/OPT:ICF"], .when(configuration: .release))
+        ]),
         .testTarget(name: "CappellaWindowsTests", dependencies: ["CappellaCore", "CappellaWindows"])
     ]
 }
