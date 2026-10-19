@@ -7,9 +7,9 @@ import WindowsFoundation
 
 extension WindowsEditor {
     func chooseRole() async -> UUID? {
-        let list = ListView(); list.height = 250; list.width = 240
+        let list = ListView(); list.height = 280; list.minWidth = 0
         for role in self.document.project.roles { list.items.append(role.name) }
-        list.selectedIndex = Int32(self.document.project.roles.firstIndex { $0.id == self.document.selectedCue?.roleID } ?? 0)
+        list.selectedIndex = self.document.project.roles.isEmpty ? -1 : Int32(self.document.project.roles.firstIndex { $0.id == self.document.selectedCue?.roleID } ?? 0)
         let portrait = Image(); portrait.width = 128; portrait.height = 128; portrait.stretch = .uniform
         func updatePortrait() {
             let index = Int(list.selectedIndex)
@@ -19,8 +19,18 @@ extension WindowsEditor {
         }
         list.selectionChanged.addHandler { _, _ in updatePortrait() }; updatePortrait()
         let name = textField(placeholder: "Nom du nouveau rôle")
-        let panel = stack([row([list, portrait], spacing: 18), label("Ou créer un rôle :"), name])
-        guard await dialog("Rôles", content: panel, primary: "OK", close: "Annuler") == .primary else { return nil }
+        name.header = "Créer un rôle"
+        let choice = Grid(); choice.columnSpacing = 20
+        let listColumn = ColumnDefinition(); listColumn.width = GridLength(value: 1, gridUnitType: .star)
+        let portraitColumn = ColumnDefinition(); portraitColumn.width = GridLength(value: 128, gridUnitType: .pixel)
+        choice.columnDefinitions.append(listColumn); choice.columnDefinitions.append(portraitColumn)
+        choice.children.append(dialogField("Rôles du projet", list))
+        let preview = dialogField("Portrait", portrait); preview.verticalAlignment = .top
+        try? Grid.setColumn(preview, 1); choice.children.append(preview)
+        let panel = stack([choice, name, dialogHint("Choisissez un rôle dans la liste, ou saisissez le nom d'un nouveau rôle.")], spacing: 16)
+        panel.width = 520
+        guard await dialog("Choisir un rôle", content: panel, primary: "OK", close: "Annuler",
+                           contentWidth: 520, defaultButton: .primary) == .primary else { return nil }
         let newName = name.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !newName.isEmpty {
             if let existing = self.document.project.roles.first(where: { $0.name.localizedCaseInsensitiveCompare(newName) == .orderedSame }) { return existing.id }
@@ -33,13 +43,13 @@ extension WindowsEditor {
     }
     func roles() async {
         var roles = self.document.project.roles
-        let list = ListView(); list.width = 190; list.height = 320
+        let list = ListView(); list.width = 200; list.height = 390
         let name = textField(), description = textField(), color = textField()
         let gender = ComboBox()
         for title in ["Neutre", "Masculin", "Féminin"] { gender.items.append(title) }
-        description.acceptsReturn = true; description.height = 80
+        description.acceptsReturn = true; description.textWrapping = .wrap; description.height = 110
         let portrait = Image(); portrait.width = 128; portrait.height = 128; portrait.stretch = .uniform
-        let formError = label(""); formError.textWrapping = .wrap
+        let formError = dialogError()
         var selected = 0, loading = false
         func flush() {
             guard !loading, roles.indices.contains(selected) else { return }
@@ -87,14 +97,31 @@ extension WindowsEditor {
             }
         }
         reload()
-        let fields = stack([portrait, label("Nom"), name, label("Couleur (#RRGGBB)"), color, label("Genre"), gender, label("Description"), description, imageButton, formError])
-        fields.width = 270
-        let panel = row([stack([list, row([add, remove])]), fields], spacing: 16)
+        portrait.width = 96; portrait.height = 96; portrait.verticalAlignment = .top
+        imageButton.horizontalAlignment = .left
+        let portraitHint = dialogHint("PNG, JPEG ou BMP · 5 Mo maximum"); portraitHint.maxWidth = 200
+        let imageActions = stack([imageButton, portraitHint], spacing: 8)
+        let fields = stack([
+            dialogSection("Portrait", [row([portrait, imageActions], spacing: 16)]),
+            dialogField("Nom", name),
+            dialogColumns([dialogField("Couleur (#RRGGBB)", color), dialogField("Genre", gender)]),
+            dialogField("Description", description)
+        ], spacing: 16)
+        let details = ScrollViewer(); details.content = fields; details.maxHeight = 450
+        details.horizontalScrollBarVisibility = .disabled; details.verticalScrollBarVisibility = .auto
+        add.minWidth = 0; remove.minWidth = 0
+        let sidebar = stack([label("Rôles du projet"), list, row([add, remove], spacing: 8)], spacing: 12)
+        let layout = Grid(); layout.columnSpacing = 24
+        let sidebarColumn = ColumnDefinition(); sidebarColumn.width = GridLength(value: 200, gridUnitType: .pixel)
+        let detailsColumn = ColumnDefinition(); detailsColumn.width = GridLength(value: 1, gridUnitType: .star)
+        layout.columnDefinitions.append(sidebarColumn); layout.columnDefinitions.append(detailsColumn)
+        layout.children.append(sidebar); try? Grid.setColumn(details, 1); layout.children.append(details)
+        let panel = stack([layout, formError], spacing: 16); panel.width = 580
         _ = await dialog("Rôles", content: panel, primary: "OK", close: "Annuler", validatePrimary: {
             flush()
             do { try self.document.commit { $0.roles = roles }; return true }
             catch { formError.text = error.localizedDescription; return false }
-        })
+        }, contentWidth: 580)
     }
     func setImage(_ view: Image, data: Data) async {
         do {

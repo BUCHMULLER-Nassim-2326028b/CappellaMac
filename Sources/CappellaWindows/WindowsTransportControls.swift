@@ -8,9 +8,9 @@ extension WindowsEditor {
         media.stop(); self.document.finishEditing(); updateTextEditor()
         let input = textField(Timecode.format(self.document.project.mediaStartFrame, fps: fps))
         let explanation = label("Les phrases, signes, boucles et plans sont décalés avec l'origine vidéo.")
-        explanation.textWrapping = .wrap
-        let message = label(""); message.textWrapping = .wrap
-        let content = stack([label("Timestamp de l'image"), input, explanation, message])
+        explanation.textWrapping = .wrap; explanation.fontSize = 12; explanation.foreground = ink(dark ? 0xB8B8B8 : 0x606060)
+        let message = dialogError()
+        let content = stack([dialogField("Timestamp de l'image", input), explanation, message], spacing: 16)
         content.width = 400
         content.loaded.addHandler { _, _ in _ = try? input.focus(.programmatic); try? input.selectAll() }
         _ = await dialog("Changer le timestamp", content: content, primary: "Appliquer", close: "Annuler", validatePrimary: {

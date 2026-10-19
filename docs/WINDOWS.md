@@ -120,6 +120,14 @@ par rôle, respect de la casse et mot entier Unicode. Suivant conserve le dialog
 ouvert et parcourt les phrases par timecode et piste, puis revient au début.
 F3 reprend la recherche avec les derniers critères ; Annuler ferme le dialogue.
 
+Les dialogues Propriétés et Préférences gardent leur NavigationView latérale,
+avec des pages défilantes, des libellés au-dessus des champs et des groupes
+distincts. Les champs courts sont disposés par deux quand cela facilite la
+lecture. Les fenêtres de rôles séparent la liste du portrait et de la fiche ;
+les formulaires courts sélectionnent leur premier champ à l'ouverture.
+Les messages longs reviennent à la ligne et les erreurs de validation restent
+visibles sous le formulaire.
+
 Les dialogues internes suivent le thème de l'application ; les sélecteurs de
 fichiers Windows conservent le thème système. La validation des codecs, de la
 fluidité et des commutations VO/VI nécessite des médias réels.

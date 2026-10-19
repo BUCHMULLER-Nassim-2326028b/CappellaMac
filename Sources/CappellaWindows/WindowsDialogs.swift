@@ -14,12 +14,8 @@ extension WindowsEditor {
         dialog.requestedTheme = dark ? .dark : .light
         let bodyWidth = contentWidth ?? 440
         if let text = content as? TextBlock { text.textWrapping = .wrap; text.maxWidth = bodyWidth }
-        do {
-            let width = bodyWidth + 48
-            _ = dialog.resources.insert("ContentDialogMaxWidth", width)
-            // ContentDialog itself spans the XamlRoot for popup layout. Limit
-            // only its inner surface through the native theme resource.
-        }
+        // Limit the native surface, not ContentDialog's full-root popup layer.
+        _ = dialog.resources.insert("ContentDialogMaxWidth", bodyWidth + 48)
         dialog.xamlRoot = root.xamlRoot; dialog.primaryButtonText = primary
         dialog.secondaryButtonText = secondary; dialog.closeButtonText = close
         dialog.defaultButton = defaultButton
@@ -136,7 +132,7 @@ extension WindowsEditor {
             let row = RowDefinition(); row.height = GridLength(value: 0, gridUnitType: .auto)
             grid.rowDefinitions.append(row)
         }
-        let text = label(title); text.textWrapping = .wrap
+        let text = label(title, size: 14); text.textWrapping = .wrap
         control.minWidth = 0; control.horizontalAlignment = .stretch
         grid.children.append(text); try? Grid.setRow(control, 1); grid.children.append(control)
         return grid
