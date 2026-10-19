@@ -31,7 +31,9 @@ final class StartupDelegate: NSObject, NSApplicationDelegate {
         return false
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        // macOS 26 can temporarily close a scene while delivering a Finder file.
+        // The window delegate approves actual user closes after save/cancel.
+        ProjectSession.shared.shouldTerminateAfterLastWindowClosed
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         ProjectSession.shared.prepareToTerminate() ? .terminateNow : .terminateCancel

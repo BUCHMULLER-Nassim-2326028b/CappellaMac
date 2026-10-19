@@ -48,6 +48,14 @@ final class WindowsDocument {
         }
         return low > 0 ? sortedLoops[low - 1] : nil
     }
+    func nextLoop(after frame: Int) -> Marker? {
+        var low = 0, high = sortedLoops.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if sortedLoops[middle].frame <= frame { low = middle + 1 } else { high = middle }
+        }
+        return low < sortedLoops.count ? sortedLoops[low] : nil
+    }
     var title: String { (url?.lastPathComponent ?? project.title) + (dirty ? " *" : "") + " - Cappella" }
     var canUndo: Bool { !undoStates.isEmpty }
     var canRedo: Bool { !redoStates.isEmpty }
@@ -178,7 +186,7 @@ final class WindowsDocument {
         try mutateCue { $0.signs?.removeAll { $0.id == id } }; signSelection = nil
     }
     func autoSave(at now: Date = Date(), using supplied: ApplicationPreferences? = nil, in directory: URL? = nil) throws {
-        preferences = supplied ?? ApplicationPreferences.load()
+        if let supplied { preferences = supplied }
         guard preferences.automaticSave else { lastAutomaticSave = now; return }
         guard now.timeIntervalSince(lastAutomaticSave) >= Double(preferences.saveInterval * 60), dirty, project != automaticSnapshot else { return }
         let folder = directory ?? Self.backupDirectory

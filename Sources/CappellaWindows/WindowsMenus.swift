@@ -12,6 +12,27 @@ extension WindowsEditor {
         item.click.addHandler { _, _ in action() }
         return item
     }
+    func checkedMenuItem(_ title: String, shortcut: String = "", checked: @escaping () -> Bool,
+                         action: @escaping () -> Void) -> ToggleMenuFlyoutItem {
+        let item = ToggleMenuFlyoutItem(); item.text = title; item.isChecked = checked()
+        if !shortcut.isEmpty { item.keyboardAcceleratorTextOverride = shortcut }
+        menuChecks.append((item, checked))
+        item.click.addHandler { [weak self] _, _ in action(); self?.refreshMenuChecks() }
+        return item
+    }
+    func refreshMenuChecks() {
+        for (item, checked) in menuChecks {
+            let value = checked()
+            if item.isChecked != value { item.isChecked = value }
+        }
+    }
+    func savePreferences() {
+        if !self.document.preferences.save() {
+            Task { @MainActor [weak self] in
+                await self?.showError("Impossible d'enregistrer les préférences dans " + WindowsSettings.fileURL.path)
+            }
+        }
+    }
     func asyncItem(_ title: String, shortcut: String = "", action: @escaping @MainActor () async -> Void) -> MenuFlyoutItem {
         menuItem(title, shortcut: shortcut) { Task { @MainActor in await action() } }
     }
@@ -41,7 +62,7 @@ extension WindowsEditor {
         tracks.items.append(menuItem("Piste précédente", shortcut: "Ctrl+Haut") { [unowned self] in self.document.selectTrack(self.document.track - 1) })
         tracks.items.append(menuItem("Piste suivante", shortcut: "Ctrl+Bas") { [unowned self] in self.document.selectTrack(self.document.track + 1) })
         tracks.items.append(MenuFlyoutSeparator())
-        for track in 0..<4 { tracks.items.append(menuItem("Piste \(track + 1)", shortcut: "F\(track + 5)") { [unowned self] in self.document.selectTrack(track) }) }
+        for track in 0..<4 { tracks.items.append(checkedMenuItem("Piste \(track + 1)", shortcut: "F\(track + 5)", checked: { [unowned self] in self.document.track == track }) { [unowned self] in self.document.selectTrack(track) }) }
         let signs = MenuFlyoutSubItem(); signs.text = "Ajouter un signe"
         for (name, kind) in signKinds {
             signs.items.append(menuItem(name) { [unowned self] in addSign(kind) })
@@ -86,18 +107,18 @@ extension WindowsEditor {
         menu("Contrôle", control)
         menu("Position", [asyncItem("Aller au timecode…", shortcut: "Ctrl+G") { [unowned self] in await goTimecode() }, menuItem("Marquer cette position", shortcut: "Ctrl+D") { [unowned self] in markPosition() }])
         menu("Affichage", [
-            menuItem("Détection") { [unowned self] in self.document.preferences.showDetection.toggle(); self.document.preferences.save(); refresh() },
-            menuItem("Grille et signes") { [unowned self] in self.document.preferences.showGrid.toggle(); self.document.preferences.save(); refresh() },
+            checkedMenuItem("Détection", checked: { [unowned self] in self.document.preferences.showDetection }) { [unowned self] in self.document.preferences.showDetection.toggle(); savePreferences(); refresh() },
+            checkedMenuItem("Grille et signes", checked: { [unowned self] in self.document.preferences.showGrid }) { [unowned self] in self.document.preferences.showGrid.toggle(); savePreferences(); refresh() },
             menuItem("Zoom avant", shortcut: "+") { [unowned self] in zoom(1.25) },
             menuItem("Zoom arrière", shortcut: "−") { [unowned self] in zoom(0.8) },
             menuItem("Écran de contrôle") { [unowned self] in showProjection() }
         ])
         menu("Audio", [
-            menuItem("Basculer VO / VI", shortcut: "F2") { [unowned self] in media.toggleVI(); refreshClock() },
+            checkedMenuItem("Basculer VO / VI", shortcut: "F2", checked: { [unowned self] in media.usingVI }) { [unowned self] in media.toggleVI(); refreshClock() },
             asyncItem("Ouvrir le son…") { [unowned self] in await chooseMedia(audio: true) },
             menuItem("Monter le volume") { [unowned self] in media.volume = min(1, media.volume + 0.1); media.applyAudio() },
             menuItem("Baisser le volume") { [unowned self] in media.volume = max(0, media.volume - 0.1); media.applyAudio() },
-            menuItem("Couper le son") { [unowned self] in media.muted.toggle(); media.applyAudio() }
+            checkedMenuItem("Couper le son", checked: { [unowned self] in media.muted }) { [unowned self] in media.muted.toggle(); media.applyAudio() }
         ])
         menu("Aide", [
             menuItem("Documentation", shortcut: "F1") { [unowned self] in openWeb("https://cappella.app/") },
@@ -120,7 +141,7 @@ extension WindowsEditor {
     func navigate(_ kind: String, _ direction: Int) {
         media.stop(); if let frame = self.document.navigate(kind, direction) { seek(frame) }; updateTextEditor()
     }
-    func zoom(_ factor: Double) { self.document.preferences.pixelsPerSecond = min(800, max(15, self.document.preferences.pixelsPerSecond * factor)); self.document.preferences.save(); renderBand(); updateTextEditor() }
+    func zoom(_ factor: Double) { self.document.preferences.pixelsPerSecond = min(800, max(15, self.document.preferences.pixelsPerSecond * factor)); savePreferences(); renderBand(); updateTextEditor() }
     func addMarker(loop: Bool) {
         perform {
             try self.document.commit { project in

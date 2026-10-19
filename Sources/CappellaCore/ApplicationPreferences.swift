@@ -19,21 +19,31 @@ public struct ApplicationPreferences: Equatable {
     public init() {}
     public static func load(from defaults: UserDefaults = .standard) -> Self {
         var value = Self()
-        func bool(_ key: String, _ fallback: Bool) -> Bool { defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key) }
+        #if os(Windows)
+        let persisted = defaults === UserDefaults.standard ? WindowsSettings.read() : [:]
+        #else
+        let persisted: [String: Any] = [:]
+        #endif
+        func object(_ key: String) -> Any? { persisted[key] ?? defaults.object(forKey: key) }
+        func string(_ key: String) -> String? { object(key) as? String }
+        func bool(_ key: String, _ fallback: Bool) -> Bool {
+            if let saved = persisted[key] as? NSNumber { return saved.boolValue }
+            return defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
+        }
         func number(_ key: String, _ fallback: Double) -> Double {
-            guard defaults.object(forKey: key) != nil else { return fallback }
-            let value = defaults.double(forKey: key)
+            guard object(key) != nil else { return fallback }
+            let value = (persisted[key] as? NSNumber)?.doubleValue ?? defaults.double(forKey: key)
             return value.isFinite ? value : fallback
         }
         value.checkUpdates = bool("general.checkUpdates", false)
         value.prefixCopies = bool("general.prefixCopies", true)
-        value.appearance = defaults.string(forKey: "general.appearance") == "dark" ? "dark" : "light"
+        value.appearance = string("general.appearance") == "dark" ? "dark" : "light"
         value.automaticSave = bool("save.automatic", true)
         value.saveInterval = Int(min(120, max(1, number("save.intervalMinutes", 5))))
         value.closeReactions = bool("rythmo.closeReactions", false)
         value.showControlAtLaunch = bool("video.showControlAtLaunch", false)
         value.videoOffsetMilliseconds = min(1000, max(-1000, number("video.offsetMilliseconds", 0)))
-        value.fontName = defaults.string(forKey: "rythmo.font") ?? value.fontName
+        value.fontName = string("rythmo.font") ?? value.fontName
         value.fontSize = number("rythmo.fontSize", 28)
         #if os(Windows)
         // Windows previously multiplied this value in the renderer. Keep the
@@ -54,7 +64,7 @@ public struct ApplicationPreferences: Equatable {
         value.showDetection = bool("rythmo.detection", true)
         return value
     }
-    public func save(to defaults: UserDefaults = .standard) {
+    @discardableResult public func save(to defaults: UserDefaults = .standard) -> Bool {
         defaults.set(checkUpdates, forKey: "general.checkUpdates")
         defaults.set(prefixCopies, forKey: "general.prefixCopies")
         defaults.set(appearance == "dark" ? "dark" : "light", forKey: "general.appearance")
@@ -72,6 +82,30 @@ public struct ApplicationPreferences: Equatable {
         defaults.set(bandHeight, forKey: "rythmo.height")
         defaults.set(showGrid, forKey: "rythmo.grid")
         defaults.set(showDetection, forKey: "rythmo.detection")
+        #if os(Windows)
+        if defaults === UserDefaults.standard {
+            let values: [String: Any] = [
+                "general.checkUpdates": checkUpdates,
+                "general.prefixCopies": prefixCopies,
+                "general.appearance": appearance == "dark" ? "dark" : "light",
+                "save.automatic": automaticSave,
+                "save.intervalMinutes": min(120, max(1, saveInterval)),
+                "rythmo.closeReactions": closeReactions,
+                "video.showControlAtLaunch": showControlAtLaunch,
+                "video.offsetMilliseconds": min(1000, max(-1000, videoOffsetMilliseconds)),
+                "rythmo.font": fontName,
+                "rythmo.fontSize": fontSize,
+                "rythmo.pixelsPerSecond": pixelsPerSecond,
+                "rythmo.windowsPixelsPerSecond": pixelsPerSecond,
+                "rythmo.height": bandHeight,
+                "rythmo.grid": showGrid,
+                "rythmo.detection": showDetection
+            ]
+            do { try WindowsSettings.merge(values) }
+            catch { return false }
+        }
+        #endif
+        return true
     }
     public func copyName(for name: String) -> String {
         prefixCopies && !name.hasPrefix("Copie de ") ? "Copie de " + name : name

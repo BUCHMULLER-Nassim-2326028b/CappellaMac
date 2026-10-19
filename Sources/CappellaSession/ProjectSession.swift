@@ -186,6 +186,9 @@ public final class ProjectSession: ObservableObject {
         }
     }
 
+    // A temporarily absent SwiftUI window during launch/file delivery is not a
+    // user close. Only the approved close/quit transaction permits termination.
+    public var shouldTerminateAfterLastWindowClosed: Bool { terminating }
     public func requestClose() -> Bool { terminating || mayReplace() }
     public func approveWindowClose() { terminating = true }
     public func prepareToTerminate() -> Bool {

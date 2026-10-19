@@ -23,6 +23,7 @@ final class WindowsEditor {
     var resizeDPI = 1.0
     var resizeCoordinate: Double?
     let resizeTimer = DispatcherTimer()
+    var menuChecks: [(ToggleMenuFlyoutItem, () -> Bool)] = []
     var handledDesktopKeys = Set<UInt>()
     var isClosed = false
     var onClosed: (() -> Void)?
@@ -72,6 +73,12 @@ final class WindowsEditor {
     let editorLayer = Canvas()
     let timecode = label("00:00:00:00", size: 28, color: ink(0xFFFFFF))
     let loopLabel = label("", size: 13, color: ink(0xDDDDDD))
+    let loopRange = label("", size: 10, color: ink(0x6E8796))
+    let clockPanel = Border()
+    var displayedLoopEnd: Int?
+    var clockProjectRevision = UInt64.max
+    var clockLastCueEnd = 0
+    var displayedClockMedia: Bool?
     let videoView = MediaPlayerElement()
     let vo = button("VO", action: {})
     let vi = button("VI", action: {})
@@ -157,7 +164,7 @@ final class WindowsEditor {
         root.rowDefinitions.append(menuRow); root.rowDefinitions.append(mainRow); root.rowDefinitions.append(dividerRow); root.rowDefinitions.append(bandRow)
         let menus = makeMenu(); try? Grid.setRow(menus, 0); root.children.append(menus)
         let main = Grid()
-        let storedFraction = UserDefaults.standard.double(forKey: "layout.windows.leftFraction")
+        let storedFraction = WindowsSettings.number(forKey: "layout.windows.leftFraction")
         let initialFraction = storedFraction.isFinite && storedFraction > 0 ? min(0.85, max(0.15, storedFraction)) : 0.445
         let leftColumn = ColumnDefinition(); leftColumn.width = GridLength(value: initialFraction, gridUnitType: .star)
         let dividerColumn = ColumnDefinition(); dividerColumn.width = GridLength(value: 6, gridUnitType: .pixel)
@@ -170,19 +177,23 @@ final class WindowsEditor {
             let fraction = min(available - minimum, max(minimum, value)) / available
             leftColumn.width = GridLength(value: fraction, gridUnitType: .star)
             rightColumn.width = GridLength(value: 1 - fraction, gridUnitType: .star)
-        }, finish: { [main] in
-            UserDefaults.standard.set(leftColumn.actualWidth / max(1, main.actualWidth - 6), forKey: "layout.windows.leftFraction")
+        }, finish: { [main, weak self] in
+            self?.perform {
+                try WindowsSettings.merge(["layout.windows.leftFraction": leftColumn.actualWidth / max(1, main.actualWidth - 6)])
+            }
         })
         try? Grid.setColumn(verticalDivider, 1); main.children.append(verticalDivider)
         let left = Grid()
         let scriptRow = RowDefinition(); scriptRow.height = GridLength(value: 1, gridUnitType: .star)
-        let savedClockHeight = UserDefaults.standard.double(forKey: "layout.windows.clockHeight")
+        let savedClockHeight = WindowsSettings.number(forKey: "layout.windows.clockHeight")
         let clockRow = RowDefinition(); clockRow.height = GridLength(value: savedClockHeight.isFinite && savedClockHeight >= 76 ? savedClockHeight : 92, gridUnitType: .pixel)
         let clockDividerRow = RowDefinition(); clockDividerRow.height = GridLength(value: 6, gridUnitType: .pixel)
         left.rowDefinitions.append(scriptRow); left.rowDefinitions.append(clockDividerRow); left.rowDefinitions.append(clockRow)
         let clockDivider = makeResizeHandle(vertical: false, position: { -clockRow.actualHeight }, change: { [left] value in
             clockRow.height = GridLength(value: min(max(76, left.actualHeight - 100), max(76, -value)), gridUnitType: .pixel)
-        }, finish: { UserDefaults.standard.set(clockRow.actualHeight, forKey: "layout.windows.clockHeight") })
+        }, finish: { [weak self] in
+            self?.perform { try WindowsSettings.merge(["layout.windows.clockHeight": clockRow.actualHeight]) }
+        })
         try? Grid.setRow(clockDivider, 1); left.children.append(clockDivider)
         main.sizeChanged.addHandler { [weak left] _, _ in
             guard let left, left.actualHeight > 0 else { return }
@@ -192,8 +203,8 @@ final class WindowsEditor {
         let scroll = ScrollViewer(); scroll.content = script
         script.spacing = 15; script.padding = Thickness(left: 8, top: 16, right: 8, bottom: 16)
         left.children.append(scroll)
-        let clock = Border(); clock.background = ink(0x161D23); clock.padding = Thickness(left: 8, top: 4, right: 8, bottom: 4)
-        clock.child = stack([row([label("timecode", size: 10, color: ink(0xFFFFFF)), timecode]), loopLabel, row([vo, vi])], spacing: 2)
+        let clock = makeClockPanel()
+
         try? Grid.setRow(clock, 2); left.children.append(clock)
         main.children.append(left)
         let videoPanel = Grid()
@@ -222,15 +233,17 @@ final class WindowsEditor {
             let height = min(max(120, root.actualHeight - 190), max(120, -value))
             self.document.preferences.bandHeight = height; appliedBandHeight = height
             bandRow.height = GridLength(value: height, gridUnitType: .pixel)
-        }, finish: { [weak self] in self?.document.preferences.save() })
+        }, finish: { [weak self] in self?.savePreferences() })
         try? Grid.setRow(bandDivider, 2); root.children.append(bandDivider)
     }
     func refresh() {
         guard !isClosed else { return }
+        refreshMenuChecks()
         let title = self.document.title
         if title != lastWindowTitle { window.title = title; titleText.text = title; lastWindowTitle = title }
         if appliedDark != dark {
             refreshWindowChrome()
+            refreshClockStyle()
             root.requestedTheme = dark ? .dark : .light
             root.background = ink(dark ? 0x202020 : 0xF6F7F8)
             let icon = resources.appendingPathComponent(dark ? "AppIconDark.ico" : "AppIcon.ico").path
@@ -284,18 +297,39 @@ final class WindowsEditor {
         }
     }
     func refreshClock() {
+        let cadenceChanged = displayedFPS != fps
         if displayedFrame != self.document.frame || displayedFPS != fps {
             timecode.text = Timecode.format(self.document.frame, fps: fps)
             displayedFrame = self.document.frame; displayedFPS = fps
         }
-        let loop = self.document.currentLoop
-        if displayedLoop != loop {
-            loopLabel.text = loop.map { "boucle \($0.label)     \(Timecode.format($0.frame, fps: fps))" } ?? ""
-            displayedLoop = loop
+        if clockProjectRevision != self.document.revision {
+            clockLastCueEnd = self.document.project.cues.map(\.end).max() ?? 0
+            clockProjectRevision = self.document.revision
         }
-        if displayedVI != media.usingVI {
-            vo.opacity = media.usingVI ? 0.5 : 1; vi.opacity = media.usingVI ? 1 : 0.5
-            displayedVI = media.usingVI
+        let loop = self.document.currentLoop
+        let loopEnd: Int?
+        if let loop {
+            let next = self.document.nextLoop(after: loop.frame)?.frame
+            let lastCue = max(clockLastCueEnd, loop.frame)
+            let mediaEnd = self.document.project.mediaStartFrame + Int(media.duration * Double(fps))
+            loopEnd = next ?? max(lastCue, mediaEnd)
+        } else { loopEnd = nil }
+        if displayedLoop != loop || displayedLoopEnd != loopEnd || cadenceChanged {
+            if let loop, let end = loopEnd {
+                let seconds = max(0, end - loop.frame) / max(1, fps)
+                loopLabel.text = "boucle  \(loop.label)       durée  \(seconds / 60) min \(seconds % 60) s"
+                loopRange.text = Timecode.format(loop.frame, fps: fps) + " → " + Timecode.format(end, fps: fps)
+                loopLabel.visibility = .visible; loopRange.visibility = .visible
+            } else {
+                loopLabel.text = ""; loopRange.text = ""
+                loopLabel.visibility = .collapsed; loopRange.visibility = .collapsed
+            }
+            displayedLoop = loop; displayedLoopEnd = loopEnd
+        }
+        if displayedVI != media.usingVI || displayedClockMedia != media.hasMedia {
+            refreshClockStyle()
+            displayedVI = media.usingVI; displayedClockMedia = media.hasMedia
+            refreshMenuChecks()
         }
     }
     func updatePlaybackRendering() {
@@ -360,7 +394,8 @@ final class WindowsEditor {
         if let contentWidth {
             let width = contentWidth + 48
             _ = dialog.resources.insert("ContentDialogMaxWidth", width)
-            dialog.maxWidth = width
+            // ContentDialog itself spans the XamlRoot for popup layout. Limit
+            // only its inner surface through the native theme resource.
         }
         dialog.xamlRoot = root.xamlRoot; dialog.primaryButtonText = primary
         dialog.secondaryButtonText = secondary; dialog.closeButtonText = close

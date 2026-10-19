@@ -153,18 +153,22 @@ extension WindowsEditor {
             page.padding = Thickness(left: 16, top: 8, right: 8, bottom: 8)
             pages.append(page)
         }
-        let names = sections.map { $0.0 }
-        navigation.selectionChanged.addHandler { sender, args in
-            guard let sender else { return }
-            let selected = args?.selectedItem as? NavigationViewItem
-            let title = (selected?.content as? String) ?? (args?.selectedItemContainer?.content as? String)
-            guard let title, let index = names.firstIndex(of: title) else { return }
-            sender.content = pages[index]
+        // Keep the actual Swift projections alive in the handler. Reading their
+        // native selection state avoids casting boxed IInspectable content or
+        // comparing freshly projected event objects with the original wrappers.
+        let content = Grid()
+        for (index, page) in pages.enumerated() {
+            page.visibility = index == 0 ? .visible : .collapsed
+            content.children.append(page)
         }
-        if let first = items.first {
-            navigation.content = pages.first
-            navigation.selectedItem = first
+        navigation.content = content
+        navigation.selectionChanged.addHandler { _, _ in
+            guard let selected = items.firstIndex(where: { $0.isSelected }) else { return }
+            for (index, page) in pages.enumerated() {
+                page.visibility = index == selected ? .visible : .collapsed
+            }
         }
+        if let first = items.first { navigation.selectedItem = first }
         return navigation
     }
     func dialogField(_ title: String, _ control: FrameworkElement) -> Grid {
@@ -359,7 +363,11 @@ extension WindowsEditor {
             draft.bandHeight = min(max(120, root.actualHeight - 190), bandHeight)
             draft.showGrid = grid.isChecked ?? true; draft.showDetection = detection.isChecked ?? true
             draft.showControlAtLaunch = control.isChecked ?? false; draft.videoOffsetMilliseconds = delay
-            draft.save(); self.document.preferences = draft
+            guard draft.save() else {
+                errorText.text = "Impossible d'enregistrer les préférences dans " + WindowsSettings.fileURL.path
+                return false
+            }
+            self.document.preferences = draft
             media.videoOffset = delay / 1000
             media.seek(Double(self.document.frame - self.document.project.mediaStartFrame) / Double(fps))
             refresh(); return true
