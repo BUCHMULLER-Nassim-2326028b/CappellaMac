@@ -33,7 +33,9 @@ Ses extensions répartissent les responsabilités :
 | WindowsTimelineText | Saisie native invisible, sélection et curseur dessinés sur la bande |
 | WindowsMenus | Menus, coches et raccourcis |
 | WindowsDesktopInput | Interception des messages clavier, suivi du redimensionnement et fermeture |
-| WindowsDialogs | Infrastructure des dialogues, catégories, recherche et actions communes |
+| WindowsDialogs | Infrastructure des dialogues, catégories et actions communes |
+| WindowsSearch | Recherche par texte, rôle, casse et mot entier ; navigation suivante |
+| WindowsTransportControls | Changement du timestamp et conservation de la position relative au média |
 | WindowsFileDialogs | Sélecteurs, ouverture, remplacement et enregistrement |
 | WindowsPropertiesPanel | Fichiers associés, rôles importés, métadonnées et repères |
 | WindowsPreferencesPanel | Préférences Général, Bande rythmo et Vidéo |
@@ -41,6 +43,13 @@ Ses extensions répartissent les responsabilités :
 | WindowsProjectMedia | Chargement et déchargement des médias au changement de projet |
 | WindowsMedia / WindowsAudioPreparation / WindowsReverseAudio | Lecture, préparation de l'audio externe et cache PCM inversé |
 | WindowsDiagnostics | Marqueurs de lancement utilisés par les contrôles CI |
+
+PlaybackControls partage les quatorze vitesses du Shuttle et la vitesse du Jog.
+ControlNavigation partage le choix des signes, phrases, rôles, boucles et plans,
+ainsi que les bornes accessibles et la sélection de la piste à destination.
+
+DialogueSearch définit les mêmes critères et le même parcours des résultats sur
+Mac et Windows, y compris les phrases simultanées et le retour au début.
 
 TimelineScrollRange partage les bornes et la taille de vue entre la barre WinUI
 et le NSScroller du Mac (TimelineScroller).

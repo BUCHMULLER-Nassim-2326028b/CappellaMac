@@ -19,6 +19,7 @@ final class Transport: ObservableObject {
     private var reverseGeneration = UUID()
     private var reverseSeekGeneration = UUID()
     private var reverseSeeking = false
+    private var reverseFailure: String?
     @Published var preparingAudio = false
     @Published var seconds = 0.0
     @Published var duration = 0.0
@@ -49,7 +50,14 @@ final class Transport: ObservableObject {
         let now = Date(); let elapsed = min(0.1, now.timeIntervalSince(previousTick)); previousTick = now
         guard rate != 0 else { return }
         if rate < 0, channelCount > 0, player.currentItem != nil {
-            guard reverseAudio != nil, !reverseSeeking else { return }
+            guard reverseAudio != nil, !reverseSeeking else {
+                // Keep shuttling while PCM is prepared or positioned. The
+                // reverse player joins at the latest timeline position.
+                seconds = max(0, seconds + elapsed * Double(rate))
+                requestMediaSeek(seconds)
+                if seconds == 0 { setRate(0) }
+                return
+            }
             let position = reversePlayer.currentTime().seconds
             if position.isFinite { seconds = max(0, duration - position) }
             requestMediaSeek(seconds)
@@ -140,6 +148,7 @@ final class Transport: ObservableObject {
                 self.duration = duration.isFinite ? max(0, duration) : 0
                 self.mediaName = image?.lastPathComponent ?? sound?.lastPathComponent
                 self.mediaID = UUID(); self.seek(seconds: savedPosition); self.setRate(savedRate)
+                self.prepareReverseAudio()
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
@@ -215,39 +224,46 @@ final class Transport: ObservableObject {
         reverseGeneration = UUID(); reverseSeekGeneration = UUID()
         reverseTask?.cancel(); reverseTask = nil; reverseSeeking = false
         reversePlayer.pause(); reversePlayer.currentItem?.cancelPendingSeeks()
-        reversePlayer.replaceCurrentItem(with: nil); reverseObservation = nil; reverseAudio = nil
+        reversePlayer.replaceCurrentItem(with: nil); reverseObservation = nil; reverseAudio = nil; reverseFailure = nil
     }
 
     private func prepareReverseAudio() {
         guard channelCount > 0, let asset = player.currentItem?.asset,
-              reverseAudio == nil, reverseTask == nil else { return }
+              reverseAudio == nil, reverseTask == nil, reverseFailure == nil else { return }
         let generation = reverseGeneration
-        preparingAudio = true
         reverseTask = Task { @MainActor [weak self] in
             do {
-                let worker = Task.detached { try await ReverseAudioPreparation.prepare(asset: asset) }
+                let worker = Task.detached(priority: .utility) { try await ReverseAudioPreparation.prepare(asset: asset) }
                 let prepared = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
                 try Task.checkCancellation()
                 guard let self, self.reverseGeneration == generation else { return }
                 let item = AVPlayerItem(asset: prepared.composition)
                 try self.applyRouting(to: item, tracks: prepared.tracks, total: prepared.channelCount)
-                self.reverseAudio = prepared; self.reverseTask = nil; self.preparingAudio = false
+                self.reverseAudio = prepared; self.reverseTask = nil
                 self.reverseObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                     guard item.status == .failed else { return }
                     let message = item.error?.localizedDescription ?? "Lecture du son inversé impossible."
                     DispatchQueue.main.async {
                         guard let self, self.reverseGeneration == generation else { return }
-                        self.setRate(0); self.error = message
+                        self.reverseAudioFailed(message)
                     }
                 }
                 self.reversePlayer.replaceCurrentItem(with: item)
                 if self.rate < 0 { self.seekReverseAudio() }
             } catch {
                 guard let self, !Task.isCancelled, self.reverseGeneration == generation else { return }
-                self.reverseTask = nil; self.preparingAudio = false
-                self.setRate(0); self.error = error.localizedDescription
+                self.reverseTask = nil
+                self.reverseAudioFailed(error.localizedDescription)
             }
         }
+    }
+
+    private func reverseAudioFailed(_ message: String) {
+        let reversing = rate < 0
+        if reversing { setRate(0) }
+        clearReverseAudio()
+        reverseFailure = message
+        if reversing { error = message }
     }
 
     private func seekReverseAudio() {
@@ -271,7 +287,11 @@ final class Transport: ObservableObject {
     }
 
     func setRate(_ value: Float) {
-        if rate < 0, reverseAudio != nil, !reverseSeeking {
+        if value < 0, let message = reverseFailure { error = message; return }
+        if rate > 0, player.currentItem != nil {
+            let position = player.currentTime().seconds
+            if position.isFinite { seconds = max(0, position) }
+        } else if rate < 0, reverseAudio != nil, !reverseSeeking {
             let position = reversePlayer.currentTime().seconds
             if position.isFinite { seconds = max(0, duration - position) }
         }

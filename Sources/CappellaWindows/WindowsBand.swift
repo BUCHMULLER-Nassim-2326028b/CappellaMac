@@ -117,7 +117,7 @@ extension WindowsEditor {
     }
     var timelineSpeed: Double {
         guard !self.document.editing, !dialogShowing, media.rate != 0 else { return 0 }
-        if media.waitingForReverseAudio || (media.hasMedia && media.usesPlaybackClock && !media.isAdvancing) { return 0 }
+        if media.hasMedia && media.usesPlaybackClock && !media.waitingForReverseAudio && !media.isAdvancing { return 0 }
         return -scale * Double(fps) * media.rate
     }
     func detachBandView(_ view: Canvas) {

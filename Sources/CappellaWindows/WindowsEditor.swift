@@ -105,6 +105,7 @@ final class WindowsEditor {
     var projectionVideo: MediaPlayerElement?
     var previewImage: Image?
     var status = label("")
+    var search = DialogueSearch()
     var dark: Bool { self.document.preferences.appearance == "dark" }
     var fps: Int { self.document.project.framesPerSecond }
     var scale: Double { self.document.preferences.pixelsPerSecond / Double(max(1, fps)) }
@@ -182,6 +183,7 @@ final class WindowsEditor {
     }
     func updatePlaybackRendering() {
         guard !isClosed else { return }
+        refreshMenuChecks()
         lastRenderUptime = ProcessInfo.processInfo.systemUptime
         timelineClock.reset()
         if media.rate != 0, renderingSubscription == nil {
@@ -196,8 +198,7 @@ final class WindowsEditor {
         let uptime = ProcessInfo.processInfo.systemUptime
         let elapsed = max(0, uptime - lastRenderUptime); lastRenderUptime = uptime
         if media.rate != 0 && !self.document.editing && !dialogShowing {
-            if media.waitingForReverseAudio { renderBand(reuse: true); return }
-            if media.hasMedia && media.usesPlaybackClock {
+            if media.hasMedia && media.usesPlaybackClock && !media.waitingForReverseAudio {
                 let seconds = max(0, timelineClock.position(sample: media.position, rate: media.rate,
                     advancing: media.isAdvancing, now: uptime))
                 playbackFrame = Double(self.document.project.mediaStartFrame) + seconds * Double(fps)
@@ -212,7 +213,11 @@ final class WindowsEditor {
                 logicalFrame = max(Double(self.document.project.mediaStartFrame), next)
                 playbackFrame = logicalFrame
                 self.document.frame = Int(logicalFrame!.rounded())
-                if media.hasMedia { media.seek(Double(self.document.frame - self.document.project.mediaStartFrame) / Double(fps)) }
+                if media.hasMedia {
+                    let seconds = Double(self.document.frame - self.document.project.mediaStartFrame) / Double(fps)
+                    if media.rate < 0 { media.synchronizeReverseVideo(seconds) }
+                    else { media.seek(seconds) }
+                }
                 if media.rate < 0 && next <= Double(self.document.project.mediaStartFrame) { media.stop() }
             }
             refreshClock(); renderBand(reuse: true)

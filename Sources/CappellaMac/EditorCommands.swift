@@ -9,7 +9,7 @@ func cappellaFunctionKey(_ number: Int) -> KeyEquivalent {
 enum EditorAction {
     case openMedia, openVI, importDetX, importRoles, exportDetX, exportScript, exportCrossTable
     case roles, changeRole, properties, find, goTimecode, shift, timestamp, check, preferences
-    case playPause, stop, step(Int), rate(Float), navigate(String, Int)
+    case playPause, stop, step(Int), rate(Float), shuttle(Double), jog(Int), navigate(String, Int)
     case addPhrase, deletePhrase, deleteSelection, track(Int), mode, addSign(String), deleteSign, shiftSign(Int), voiceOff
     case addLoop, addShot, markPosition, positions, zoom(Double), grid, detection, fullScreen, projection
     case toggleVI, mute, volume(Float), recordAudio, detectShots
@@ -27,6 +27,7 @@ struct EditorCommandState: Equatable {
     var recording = false
     var usingVI = false
     var detectionMode = false
+    var playbackRate = 0.0
 }
 
 /// One stable object per document prevents each video frame from publishing a
@@ -109,11 +110,14 @@ struct CappellaCommands: Commands {
             Divider()
             Button("Image suivante") { run(.step(1)) }.keyboardShortcut(.rightArrow, modifiers: .option)
             Button("Image précédente") { run(.step(-1)) }.keyboardShortcut(.leftArrow, modifiers: .option)
-            Button("Jog avant") { run(.rate(0.25)) }
-            Button("Jog arrière") { run(.rate(-0.25)) }
+            Button("Jog avant") { run(.jog(1)) }
+            Button("Jog arrière") { run(.jog(-1)) }
             Menu("Shuttle") {
-                ForEach([-10.0, -3, -1, -0.75, -0.5, -0.25, -0.125, 0.125, 0.25, 0.5, 0.75, 1, 3, 10], id: \.self) { rate in
-                    Button("\(rate < 0 ? "Arrière" : "Avant") ×\(abs(rate).formatted())") { run(.rate(Float(rate))) }
+                ForEach(PlaybackControls.shuttleSpeeds) { speed in
+                    Toggle(speed.title, isOn: Binding(
+                        get: { editor?.state.playbackRate == speed.rate },
+                        set: { _ in run(.shuttle(speed.rate)) }
+                    ))
                 }
             }
             Divider()

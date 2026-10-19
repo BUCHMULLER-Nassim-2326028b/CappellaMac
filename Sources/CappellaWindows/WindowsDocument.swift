@@ -150,22 +150,15 @@ final class WindowsDocument {
         }
         try mutateCue { $0.track = value }; track = value; changed?()
     }
-    func navigate(_ kind: String, _ direction: Int) -> Int? {
+    func navigate(_ kind: String, _ direction: Int, mediaDuration: Double = 0) -> Int? {
         finishEditing()
-        let targets: [Int]
-        switch kind {
-        case "loop": targets = project.loops.map(\.frame)
-        case "shot": targets = project.shots.map(\.frame)
-        case "phrase": targets = project.cues.map(\.start)
-        case "role": targets = project.cues.filter { $0.roleID == selectedCue?.roleID }.map(\.start)
-        default: targets = Timeline.snapFrames(in: project)
+        guard let destination = ControlNavigation.destination(in: project, kind: kind, direction: direction,
+            from: frame, selection: selection, mediaDuration: mediaDuration) else { return nil }
+        frame = destination.frame; signSelection = destination.signID
+        if let id = destination.cueID, let destinationTrack = destination.track {
+            selection = id; track = destinationTrack
         }
-        guard let target = Timeline.adjacentFrame(in: targets.filter { $0 >= project.mediaStartFrame }, from: frame, direction: direction) else { return nil }
-        frame = target; signSelection = nil
-        if let cue = project.cues.first(where: { $0.anchors.contains { $0.frame == target } }) {
-            selection = cue.id; track = cue.track; signSelection = cue.anchors.first { $0.frame == target }?.id
-        }
-        changed?(); return target
+        changed?(); return destination.frame
     }
     func addSign(_ kind: String) throws {
         if kind.hasPrefix("out_") {

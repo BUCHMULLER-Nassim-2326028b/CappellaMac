@@ -48,7 +48,15 @@ une seconde pression retire le statut et le soulignement.
 
 
 
-navigation par recherches d'images et ne restitue pas l'audio à l'envers.
+La lecture inverse restitue le son à l'envers sur Mac et Windows. Son cache est
+préparé en arrière-plan dès le chargement du média ; si le retour arrière est
+demandé immédiatement, le son rejoint la lecture une fois prêt.
+
+Le menu Contrôle propose aussi Jog avant/arrière (lecture continue à x0.25),
+et les mêmes quatorze vitesses de Shuttle sur Mac et Windows : arrière puis
+avant, x0.125, x0.25, x0.5, x0.75, x1, x3 et x10. Stop et Espace arrêtent
+ces lectures. Changer le timestamp et les navigations par rôle sont disponibles
+sur les deux plateformes ; Machine Orphée reste désactivée.
 
 ## Affichage et audio
 

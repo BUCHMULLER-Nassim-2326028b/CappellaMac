@@ -81,7 +81,7 @@ complète avec chaque comportement de l'original.
 
 | Chantier | État actuel |
 |---|---|
-| Parité Mac / Windows | L'enregistrement microphone et la détection automatique des plans restent propres au Mac. La recherche et la projection Windows sont moins complètes. |
+| Parité Mac / Windows | L'enregistrement microphone et la détection automatique des plans restent propres au Mac. La projection Windows est moins complète. |
 | Audio Windows | Étendre la couverture des dispositions multicanales et des formats AIFF/AIFC ; valider les codecs avec des médias réels. |
 | Compatibilité des projets | Vérifier davantage de variantes DetX, les anciens .det et la réouverture des exports dans le Cappella d'origine. |
 | Outils métier avancés | Compléter le protocole Orphée/FTDI, le sous-titrage UER et l'impression d'origine. |

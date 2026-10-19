@@ -9,7 +9,9 @@ extension WindowsEditor {
     func preferences() async {
         var draft = self.document.preferences
         func check(_ title: String, _ value: Bool) -> CheckBox {
-            let view = CheckBox(); view.content = title; view.isChecked = value; return view
+            let caption = label(title); caption.textWrapping = .wrap
+            let view = CheckBox(); view.content = caption; view.isChecked = value
+            return view
         }
         let theme = ComboBox(); theme.items.append("Clair"); theme.items.append("Sombre"); theme.selectedIndex = dark ? 1 : 0
         let updates = check("Vérifier les mises à jour au lancement", draft.checkUpdates)
@@ -18,21 +20,38 @@ extension WindowsEditor {
         let interval = textField(String(draft.saveInterval)); interval.isEnabled = draft.automaticSave
         automatic.checked.addHandler { _, _ in interval.isEnabled = true }
         automatic.unchecked.addHandler { _, _ in interval.isEnabled = false }
-        let general = stack([label("Général", size: 17), updates, prefix, dialogField("Apparence", theme),
-                             label("Sauvegarde automatique", size: 17), automatic, dialogField("Intervalle (minutes)", interval)])
+        let general = stack([
+            dialogSection("Application", [updates, prefix, dialogField("Apparence", theme)]),
+            dialogSection("Sauvegarde automatique", [
+                automatic, dialogField("Intervalle (minutes)", interval),
+                dialogHint("Les copies de récupération ne remplacent pas votre fichier de travail.")
+            ])
+        ], spacing: 20)
         let closeReactions = check("Fermer automatiquement les réacs", draft.closeReactions)
         let font = textField(fontFamily), size = textField(String(Int(draft.fontSize)))
         let speed = textField(String(Int(draft.pixelsPerSecond))), height = textField(String(Int(draft.bandHeight)))
         let grid = check("Grille et signes", draft.showGrid), detection = check("Détection", draft.showDetection)
-        let band = stack([closeReactions, dialogField("Police", font), dialogField("Taille des répliques", size),
-                          dialogField("Pixels par seconde", speed), dialogField("Hauteur de la bande", height), grid, detection])
+        let band = stack([
+            dialogSection("Écriture", [closeReactions, dialogField("Police", font)]),
+            dialogSection("Dimensions", [
+                dialogColumns([dialogField("Taille des répliques", size), dialogField("Pixels par seconde", speed)]),
+                dialogField("Hauteur de la bande", height)
+            ]),
+            dialogSection("Affichage", [grid, detection])
+        ], spacing: 20)
         let control = check("Afficher l'écran de contrôle au lancement", draft.showControlAtLaunch)
         let offset = textField(String(Int(draft.videoOffsetMilliseconds)))
         let reset = button("Réinitialiser le décalage") { offset.text = "0" }
-        let video = stack([control, label("Décalage de l'image par rapport au son"),
-                           dialogField("Décalage (ms)", offset), label("Négatif : en retard · Positif : en avance"), reset])
+        reset.horizontalAlignment = .left
+        let video = stack([
+            control,
+            dialogSection("Synchronisation", [
+                dialogField("Décalage de l'image par rapport au son (ms)", offset),
+                dialogHint("Négatif : en retard · Positif : en avance"), reset
+            ])
+        ], spacing: 20)
         let categories = dialogCategories([("Général", general), ("Bande rythmo", band), ("Vidéo", video)])
-        let errorText = label(""); errorText.textWrapping = .wrap
+        let errorText = dialogError()
         func apply() -> Bool {
             guard let minutes = Int(interval.text), (1...120).contains(minutes),
                   let fontSize = Double(size.text), fontSize.isFinite, (16...42).contains(fontSize),
@@ -61,6 +80,6 @@ extension WindowsEditor {
             refresh(); return true
         }
         _ = await dialog("Préférences", content: stack([categories, errorText]), primary: "OK", close: "Annuler",
-                         validatePrimary: apply, contentWidth: 660)
+                         validatePrimary: apply, contentWidth: categories.width)
     }
 }

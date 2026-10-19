@@ -39,10 +39,9 @@ struct EditorView: View {
     @State private var timelineWheelScroll = TimelineWheelScroll()
     @State private var detectionMode = false
     @State private var panel: EditorPanel?
-    @State private var query = ""
-    @State private var searchRole: UUID?
-    @State private var wholeWords = false
-    @State private var exactCase = false
+    @State private var search = DialogueSearch()
+    @State private var searchMessage = ""
+    @FocusState private var searchFocused: Bool
     @State private var input = ""
     @State private var error: String?
     @State private var validationReport = ""
@@ -61,7 +60,7 @@ struct EditorView: View {
         EditorCommandState(currentTrack: currentTrack, hasSelection: selection != nil, hasSign: selectedSign != nil,
                            showGrid: showGrid, showDetection: showDetection,
                            recording: recorder.recording, usingVI: transport.usingVI,
-                           detectionMode: detectionMode)
+                           detectionMode: detectionMode, playbackRate: Double(transport.rate))
     }
 
     var body: some View {
@@ -303,16 +302,42 @@ struct EditorView: View {
                 }
             }.padding(18).frame(width: 460, height: 360)
         case .find:
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Rechercher").font(.headline)
-                TextField("Texte", text: $query).onSubmit(findNext)
-                Picker("Rôle", selection: $searchRole) {
-                    Text("Tous les rôles").tag(Optional<UUID>.none)
-                    ForEach(project.roles) { Text($0.name).tag(Optional($0.id)) }
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Rechercher").font(.title3).fontWeight(.semibold)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Rechercher").font(.subheadline)
+                    TextField("Texte à rechercher", text: $search.text)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($searchFocused).accessibilityLabel("Rechercher")
                 }
-                Toggle("Mots entiers", isOn: $wholeWords); Toggle("Respecter la casse", isOn: $exactCase)
-                HStack { Button("Fermer") { panel = nil }; Spacer(); Button("Suivant", action: findNext).keyboardShortcut(.defaultAction) }
-            }.padding(20).frame(width: 410)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Pour").font(.subheadline)
+                    Picker("Pour", selection: $search.roleID) {
+                        Text("Tous les rôles").tag(Optional<UUID>.none)
+                        ForEach(project.roles) { Text($0.name).tag(Optional($0.id)) }
+                    }.labelsHidden().frame(maxWidth: .infinity)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Options").font(.caption).foregroundColor(.secondary)
+                    Toggle("Respecter la casse", isOn: $search.caseSensitive)
+                    Toggle("Mot entier", isOn: $search.wholeWord)
+                }.toggleStyle(.checkbox)
+                Text(searchMessage.isEmpty ? " " : searchMessage)
+                    .font(.caption).foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
+                Divider()
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button("Annuler") { panel = nil }.keyboardShortcut(.cancelAction)
+                    Button("Suivant", action: findNext).keyboardShortcut(.defaultAction).disabled(search.text.isEmpty)
+                }
+            }
+            .padding(24).frame(width: 400)
+            .onAppear {
+                searchMessage = ""; searchFocused = true
+                if let id = search.roleID, !project.roles.contains(where: { $0.id == id }) { search.roleID = nil }
+            }
+            .onChange(of: search) { _ in searchMessage = "" }
         case .timecode, .timestamp, .shift:
             VStack(alignment: .leading, spacing: 16) {
                 Text(active == .timecode ? "Aller au timecode" : active == .timestamp ? "Timestamp de l'image" : "Décaler la rythmo").font(.headline)
@@ -367,16 +392,18 @@ struct EditorView: View {
             if editingPhrase { assigningExisting = true; chosenRole = selectedCue?.roleID; panel = .chooseRole }
             else { panel = .roles }
         case .properties: panel = .properties
-        case .find: panel = .find
+        case .find: showSearch()
         case .goTimecode: input = Timecode.format(frame, fps: project.framesPerSecond); panel = .timecode
         case .shift: input = "0"; panel = .shift
-        case .timestamp: input = Timecode.format(project.mediaStartFrame, fps: project.framesPerSecond); panel = .timestamp
+        case .timestamp: transport.setRate(0); if editingPhrase { finishPhrase() }; input = Timecode.format(project.mediaStartFrame, fps: project.framesPerSecond); panel = .timestamp
         case .preferences: panel = .preferences
         case .check: verify()
-        case .playPause: transport.toggle()
+        case .playPause: startShuttle(transport.rate == 0 ? 1 : 0)
         case .stop: transport.setRate(0); project.lastPositionFrame = frame
         case .step(let amount): transport.setRate(0); seek(to: frame + amount)
-        case .rate(let value): transport.setRate(transport.rate == value ? 0 : value)
+        case .rate(let value): startShuttle(Double(transport.rate == value ? 0 : value))
+        case .shuttle(let value): startShuttle(value)
+        case .jog(let direction): startShuttle(PlaybackControls.jogSpeed * Double(direction))
         case .navigate(let type, let direction): navigate(type, direction: direction)
         case .copyPhrase: copyPhrase(cut: false)
         case .cutPhrase: copyPhrase(cut: true)
@@ -571,43 +598,37 @@ struct EditorView: View {
         selection = cueID; selectedSign = signID
         Timeline.moveSign(in: &project.cues[index], id: signID, to: target)
     }
+    private func startShuttle(_ rate: Double) {
+        if editingPhrase { finishPhrase() }
+        transport.setRate(Float(rate))
+    }
     private func navigate(_ type: String, direction: Int) {
         if editingPhrase { finishPhrase() }
         transport.setRate(0)
-        let current = frame
-        let targets: [Int]
-        switch type {
-        case "loop": targets = project.loops.map(\.frame)
-        case "shot": targets = project.shots.map(\.frame)
-        case "sign": targets = Timeline.snapFrames(in: project)
-        case "role": targets = project.cues.filter { $0.roleID == selectedCue?.roleID }.map(\.start)
-        default: targets = project.cues.map(\.start)
-        }
-        // Exclude unreachable markers, otherwise repeated arrows can keep
-        // choosing a point that the media transport immediately clamps away.
-        let lastFrame = transport.duration > 0 ? project.mediaStartFrame + Timeline.frame(at: transport.duration, fps: project.framesPerSecond, playing: true) : Int.max
-        let reachable = targets.filter { $0 >= project.mediaStartFrame && $0 <= lastFrame }
-        let target = Timeline.adjacentFrame(in: reachable, from: current, direction: direction)
-        guard let target else { return }
-        seek(to: target)
-        selectedSign = nil
-        if let cue = orderedCues.first(where: { type == "sign" ? $0.anchors.contains(where: { $0.frame == target }) : $0.start == target }) {
-            selection = cue.id; currentTrack = cue.track
-            selectedSign = type == "sign" ? cue.anchors.first { $0.frame == target }?.id : nil
+        guard let destination = ControlNavigation.destination(in: project, kind: type, direction: direction,
+            from: frame, selection: selection, mediaDuration: transport.duration) else { return }
+        seek(to: destination.frame)
+        selectedSign = destination.signID
+        if let id = destination.cueID, let track = destination.track {
+            selection = id; currentTrack = track
         }
     }
+    private func showSearch() {
+        transport.setRate(0)
+        if editingPhrase { finishPhrase() }
+        searchMessage = ""
+        panel = .find
+    }
     private func findNext() {
-        let matches = orderedCues.filter { cue in
-            guard searchRole == nil || cue.roleID == searchRole else { return false }
-            if query.isEmpty { return searchRole != nil }
-            if wholeWords {
-                let pattern = "(?<![\\p{L}\\p{N}_])" + NSRegularExpression.escapedPattern(for: query) + "(?![\\p{L}\\p{N}_])"
-                let regex = try? NSRegularExpression(pattern: pattern, options: exactCase ? [] : [.caseInsensitive])
-                return regex?.firstMatch(in: cue.text, range: NSRange(cue.text.startIndex..., in: cue.text)) != nil
-            }
-            return cue.text.range(of: query, options: exactCase ? [] : [.caseInsensitive]) != nil
+        guard !search.text.isEmpty else { showSearch(); return }
+        transport.setRate(0)
+        if editingPhrase { finishPhrase() }
+        guard let cue = search.next(in: project.cues, after: frame, selection: selection) else {
+            if panel == .find { searchMessage = "Aucune phrase trouvée." }
+            else { error = "Aucune phrase trouvée." }
+            return
         }
-        guard let cue = matches.first(where: { $0.start > frame }) ?? matches.first else { error = "Aucune phrase trouvée."; return }
+        searchMessage = ""
         select(cue, edit: false)
     }
     private func applyInput() {

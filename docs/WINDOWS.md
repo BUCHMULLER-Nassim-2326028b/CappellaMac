@@ -75,6 +75,20 @@ La sauvegarde automatique est désactivable et son intervalle est réglable.
 Ses copies de récupération sont stockées dans le dossier de données utilisateur
 Cappella/Autosaves, séparément du fichier original.
 
+## Contrôle de la lecture
+
+Mac et Windows partagent les vitesses du Shuttle, de x0.125 à x10 dans chaque
+direction (x0.125, x0.25, x0.5, x0.75, x1, x3, x10). La vitesse active est cochée ;
+sélectionner une vitesse la fixe, même si elle était déjà active. Jog avant et
+Jog arrière lancent une lecture continue à x0.25 dans le sens choisi. Stop ou
+Espace l'arrête. Les touches Haut/Bas et V/B/N/virgule restent des bascules.
+
+Les menus proposent les mêmes navigations : signes, phrases, phrases du rôle,
+boucles et plans. Les cibles hors du média sont ignorées sur les deux plateformes.
+Changer le timestamp décale l'origine, les dialogues, leurs signes et les
+repères tout en conservant la position relative au média. Machine Orphée reste
+désactivée sur les deux plateformes : son protocole matériel n'est pas porté.
+
 ## Audio et limites
 
 Le fichier audio externe remplace le son de la vidéo. Les AIFF/AIFC PCM pris en
@@ -82,19 +96,29 @@ charge sont préparés en WAV ; quatre canaux sont séparés en deux paires sté
 et VI. Les fichiers source restent inchangés. Les dispositions de quatre flux mono
 et les formats compressés AIFC ne sont pas équivalents au moteur Mac.
 
-La lecture arrière prépare une copie PCM inversée des pistes audio avec Media
-Foundation, puis lit cette copie à vitesse positive pendant que la vidéo recule.
-Le son externe conserve la priorité et le choix VO/VI reste actif. La première
-lecture arrière attend la préparation ; les suivantes réutilisent le cache du
-projet. La préparation travaille par blocs, respecte l'annulation et supprime
+Dès le chargement du média, une tâche de fond prépare une copie PCM inversée
+des pistes audio avec Media Foundation. La lecture arrière réutilise cette copie
+à vitesse positive pendant que la vidéo recule.
+Le son externe conserve la priorité et le choix VO/VI reste actif. L'image recule
+immédiatement, y compris lors d'un changement de direction pendant la lecture.
+Si la lecture arrière est demandée avant la fin de cette préparation, le son
+rejoint la position courante dès qu'il est prêt. Une erreur de préparation en
+arrière-plan ne coupe pas la lecture normale ; elle est signalée si le retour
+arrière est demandé.
+La préparation travaille par blocs, respecte l'annulation et supprime
 ses fichiers temporaires au déchargement. Elle nécessite de l'espace disque ;
 chaque piste WAV de sortie est limitée à 4 Go. Les codecs et la synchronisation
 doivent encore être validés sur des médias réels.
 
 L'enregistrement microphone et la détection automatique des plans restent propres
 au Mac. La projection Windows affiche la vidéo ; elle ne reproduit pas encore
-l'ensemble de l'écran de contrôle Mac. La recherche et certains outils avancés
-restent moins complets sur Windows.
+l'ensemble de l'écran de contrôle Mac. Certains outils avancés restent moins
+complets sur Windows.
+
+La recherche (Ctrl+F) partage son moteur avec le Mac : texte littéral, filtre
+par rôle, respect de la casse et mot entier Unicode. Suivant conserve le dialogue
+ouvert et parcourt les phrases par timecode et piste, puis revient au début.
+F3 reprend la recherche avec les derniers critères ; Annuler ferme le dialogue.
 
 Les dialogues internes suivent le thème de l'application ; les sélecteurs de
 fichiers Windows conservent le thème système. La validation des codecs, de la

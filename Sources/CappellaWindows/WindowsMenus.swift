@@ -92,18 +92,41 @@ extension WindowsEditor {
             MenuFlyoutSeparator(),
             asyncItem("Préférences…") { [unowned self] in await preferences() }
         ])
+        let shuttle = MenuFlyoutSubItem(); shuttle.text = "Shuttle"
+        for speed in PlaybackControls.shuttleSpeeds {
+            shuttle.items.append(checkedMenuItem(speed.title, checked: { [unowned self] in media.rate == speed.rate }) {
+                [unowned self] in setRate(speed.rate)
+            })
+        }
         var control: [MenuFlyoutItemBase] = [
-            menuItem("Lecture / Pause", shortcut: "Espace") { [unowned self] in togglePlay() },
-            menuItem("Lecture avant", shortcut: "Haut") { [unowned self] in setRate(1) },
-            menuItem("Lecture inverse", shortcut: "Bas") { [unowned self] in setRate(-1) },
+            menuItem("Lecture/Pause", shortcut: "Espace") { [unowned self] in togglePlay() },
+            menuItem("Lecture avant", shortcut: "Haut") { [unowned self] in setRate(media.rate == 1 ? 0 : 1) },
+            menuItem("Lecture inverse", shortcut: "Bas") { [unowned self] in setRate(media.rate == -1 ? 0 : -1) },
             menuItem("Stop") { [unowned self] in media.stop() },
+            MenuFlyoutSeparator(),
             menuItem("Image suivante", shortcut: "Alt+Droite") { [unowned self] in media.stop(); seek(self.document.frame + 1) },
             menuItem("Image précédente", shortcut: "Alt+Gauche") { [unowned self] in media.stop(); seek(self.document.frame - 1) },
+            MenuFlyoutSeparator(),
+            menuItem("Jog avant") { [unowned self] in setRate(PlaybackControls.jogSpeed) },
+            menuItem("Jog arrière") { [unowned self] in setRate(-PlaybackControls.jogSpeed) },
+            shuttle,
             MenuFlyoutSeparator()
         ]
-        for (title, kind, direction) in [("Signe précédent", "sign", -1), ("Signe suivant", "sign", 1), ("Phrase précédente", "phrase", -1), ("Phrase suivante", "phrase", 1), ("Boucle précédente", "loop", -1), ("Boucle suivante", "loop", 1), ("Plan précédent", "shot", -1), ("Plan suivant", "shot", 1)] {
-            control.append(menuItem(title) { [unowned self] in navigate(kind, direction) })
+        let navigation: [(String, String, String, Int)] = [
+            ("Signe précédent", "Gauche", "sign", -1), ("Signe suivant", "Droite", "sign", 1),
+            ("Phrase précédente", "Tab/F9", "phrase", -1), ("Phrase suivante", "Maj+Tab/F10", "phrase", 1),
+            ("Phrase précédente de ce rôle", "Ctrl+F9", "role", -1), ("Phrase suivante de ce rôle", "Ctrl+F10", "role", 1),
+            ("Boucle précédente", "F11", "loop", -1), ("Boucle suivante", "F12", "loop", 1),
+            ("Plan précédent", "", "shot", -1), ("Plan suivant", "", "shot", 1)
+        ]
+        for (title, shortcut, kind, direction) in navigation {
+            control.append(menuItem(title, shortcut: shortcut) { [unowned self] in navigate(kind, direction) })
         }
+        control.append(MenuFlyoutSeparator())
+        control.append(asyncItem("Changer le timestamp…") { [unowned self] in await changeTimestamp() })
+        let orphee = menuItem("Machine Orphée…") {}
+        orphee.isEnabled = false
+        control.append(orphee)
         menu("Contrôle", control)
         menu("Position", [asyncItem("Aller au timecode…", shortcut: "Ctrl+G") { [unowned self] in await goTimecode() }, menuItem("Marquer cette position", shortcut: "Ctrl+D") { [unowned self] in markPosition() }])
         menu("Affichage", [
@@ -140,7 +163,7 @@ extension WindowsEditor {
         self.document.finishEditing(); logicalFrame = Double(self.document.frame); updateTextEditor(); perform { try media.setRate(rate) }
     }
     func navigate(_ kind: String, _ direction: Int) {
-        media.stop(); if let frame = self.document.navigate(kind, direction) { seek(frame) }; updateTextEditor()
+        media.stop(); if let frame = self.document.navigate(kind, direction, mediaDuration: media.duration) { seek(frame) }; updateTextEditor()
     }
     func zoom(_ factor: Double) { self.document.preferences.pixelsPerSecond = min(800, max(15, self.document.preferences.pixelsPerSecond * factor)); savePreferences(); renderBand(); updateTextEditor() }
     func addMarker(loop: Bool) {
@@ -283,6 +306,7 @@ extension WindowsEditor {
             case 27: self.document.cancelEditing(); updateTextEditor()
             case 112: openWeb("https://cappella.app/")
             case 113: media.toggleVI(); refreshClock()
+            case 114: if !isRepeat { findNext() }
             case 115: perform { try self.document.project.validate() }
             case 116...119: self.document.selectTrack(key - 116)
             case 120: navigate("phrase", -1)

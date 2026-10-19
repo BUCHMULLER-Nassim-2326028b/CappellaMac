@@ -5,21 +5,24 @@ import WinUI
 import WindowsFoundation
 
 extension WindowsEditor {
-    func dialog(_ title: String, content: UIElement, primary: String = "OK", secondary: String = "", close: String = "", validatePrimary: (() -> Bool)? = nil, secondaryAction: (() -> Void)? = nil, contentWidth: Double? = nil) async -> ContentDialogResult {
+    func dialog(_ title: String, content: UIElement, primary: String = "OK", secondary: String = "", close: String = "", validatePrimary: (() -> Bool)? = nil, secondaryAction: (() -> Void)? = nil, contentWidth: Double? = nil, defaultButton: ContentDialogButton = .none) async -> ContentDialogResult {
         guard !dialogShowing, !isClosed else { return .none }
         dialogShowing = true; defer { dialogShowing = false }
         let dialog = ContentDialog(); dialog.title = title; dialog.content = content
         activeDialog = dialog
         defer { if activeDialog === dialog { activeDialog = nil } }
         dialog.requestedTheme = dark ? .dark : .light
-        if let contentWidth {
-            let width = contentWidth + 48
+        let bodyWidth = contentWidth ?? 440
+        if let text = content as? TextBlock { text.textWrapping = .wrap; text.maxWidth = bodyWidth }
+        do {
+            let width = bodyWidth + 48
             _ = dialog.resources.insert("ContentDialogMaxWidth", width)
             // ContentDialog itself spans the XamlRoot for popup layout. Limit
             // only its inner surface through the native theme resource.
         }
         dialog.xamlRoot = root.xamlRoot; dialog.primaryButtonText = primary
         dialog.secondaryButtonText = secondary; dialog.closeButtonText = close
+        dialog.defaultButton = defaultButton
         if let validatePrimary {
             dialog.primaryButtonClick.addHandler { _, args in args?.cancel = !validatePrimary() }
         }
@@ -30,10 +33,36 @@ extension WindowsEditor {
     }
 
     func form(_ title: String, fields: [(String, TextBox)]) async -> Bool {
-        let panel = StackPanel(); panel.spacing = 10
-        for (name, field) in fields { panel.children.append(label(name)); panel.children.append(field) }
-        let scroll = ScrollViewer(); scroll.content = panel; scroll.maxHeight = 480; scroll.minWidth = 430
-        return await dialog(title, content: scroll, primary: "OK", close: "Annuler") == .primary
+        let panel = StackPanel(); panel.spacing = 16; panel.width = 400
+        for (name, field) in fields {
+            field.header = name; field.minWidth = 0; field.horizontalAlignment = .stretch
+            panel.children.append(field)
+        }
+        panel.loaded.addHandler { _, _ in
+            if let first = fields.first?.1 { _ = try? first.focus(.programmatic); try? first.selectAll() }
+        }
+        let scroll = ScrollViewer(); scroll.content = panel
+        scroll.maxHeight = min(480, max(240, root.actualHeight - 220))
+        scroll.horizontalScrollBarVisibility = .disabled
+        scroll.verticalScrollBarVisibility = .auto
+        return await dialog(title, content: scroll, primary: "OK", close: "Annuler",
+                            contentWidth: 400, defaultButton: .primary) == .primary
+    }
+    func dialogHint(_ text: String) -> TextBlock {
+        let view = label(text, size: 12, color: ink(dark ? 0xB8B8B8 : 0x606060))
+        view.textWrapping = .wrap
+        return view
+    }
+    func dialogError() -> TextBlock {
+        let view = label("", size: 12, color: ink(dark ? 0xFFB4AB : 0xB3261E))
+        view.textWrapping = .wrap; view.minHeight = 18
+        return view
+    }
+    func dialogSection(_ title: String, _ controls: [UIElement]) -> StackPanel {
+        let heading = label(title, size: 14); heading.fontWeight = FontWeights.semiBold
+        let panel = stack([heading] + controls, spacing: 12)
+        panel.margin = Thickness(left: 0, top: 0, right: 0, bottom: 8)
+        return panel
     }
     func chooseMedia(audio: Bool) async {
         guard let url = await pickFile(audio ? [".wav", ".aiff", ".aif", ".mp3", ".m4a", ".flac", ".mp4"] : [".mp4", ".mov", ".mkv", ".avi", ".wmv"]) else { return }
@@ -68,14 +97,19 @@ extension WindowsEditor {
         navigation.isPaneToggleButtonVisible = false
         navigation.isBackButtonVisible = .collapsed
         navigation.isSettingsVisible = false; navigation.alwaysShowHeader = false
-        navigation.width = 660; navigation.height = 410
+        navigation.width = min(720, max(520, root.actualWidth - 96))
+        navigation.height = min(470, max(280, root.actualHeight - 220))
         var items: [NavigationViewItem] = []
         var pages: [ScrollViewer] = []
         for section in sections {
             let item = NavigationViewItem(); item.content = section.0
             navigation.menuItems.append(item); items.append(item)
-            let page = ScrollViewer(); page.content = section.1
-            page.padding = Thickness(left: 16, top: 8, right: 8, bottom: 8)
+            let heading = label(section.0, size: 20); heading.fontWeight = FontWeights.semiBold
+            let body = stack([heading, section.1], spacing: 20)
+            let page = ScrollViewer(); page.content = body
+            page.horizontalScrollBarVisibility = .disabled
+            page.verticalScrollBarVisibility = .auto
+            page.padding = Thickness(left: 24, top: 12, right: 16, bottom: 16)
             pages.append(page)
         }
         // Keep the actual Swift projections alive in the handler. Reading their
@@ -97,12 +131,30 @@ extension WindowsEditor {
         return navigation
     }
     func dialogField(_ title: String, _ control: FrameworkElement) -> Grid {
-        let grid = Grid()
-        let caption = ColumnDefinition(); caption.width = GridLength(value: 155, gridUnitType: .pixel)
-        let value = ColumnDefinition(); value.width = GridLength(value: 1, gridUnitType: .star)
-        grid.columnDefinitions.append(caption); grid.columnDefinitions.append(value)
-        let text = label(title); text.verticalAlignment = .center; text.textWrapping = .wrap
-        grid.children.append(text); try? Grid.setColumn(control, 1); grid.children.append(control)
+        let grid = Grid(); grid.rowSpacing = 6
+        for _ in 0..<2 {
+            let row = RowDefinition(); row.height = GridLength(value: 0, gridUnitType: .auto)
+            grid.rowDefinitions.append(row)
+        }
+        let text = label(title); text.textWrapping = .wrap
+        control.minWidth = 0; control.horizontalAlignment = .stretch
+        grid.children.append(text); try? Grid.setRow(control, 1); grid.children.append(control)
+        return grid
+    }
+    func dialogColumns(_ controls: [FrameworkElement]) -> Grid {
+        let grid = Grid(); grid.columnSpacing = 16; grid.rowSpacing = 16
+        for _ in 0..<2 {
+            let column = ColumnDefinition(); column.width = GridLength(value: 1, gridUnitType: .star)
+            grid.columnDefinitions.append(column)
+        }
+        for _ in 0..<((controls.count + 1) / 2) {
+            let row = RowDefinition(); row.height = GridLength(value: 0, gridUnitType: .auto)
+            grid.rowDefinitions.append(row)
+        }
+        for (index, control) in controls.enumerated() {
+            try? Grid.setRow(control, Int32(index / 2)); try? Grid.setColumn(control, Int32(index % 2))
+            grid.children.append(control)
+        }
         return grid
     }
     func goTimecode() async {
@@ -117,14 +169,6 @@ extension WindowsEditor {
         if await form("Décaler la rythmo", fields: [("Décalage en images (+ ou −)", input)]), let delta = Int(input.text) {
             perform { try self.document.commit { try $0.shift(by: delta) } }
         }
-    }
-    func find() async {
-        let input = textField()
-        guard await form("Rechercher", fields: [("Texte", input)]), !input.text.isEmpty else { return }
-        let matches = self.document.project.cues.sorted { $0.start < $1.start }.filter { $0.text.localizedCaseInsensitiveContains(input.text) }
-        if let cue = matches.first(where: { $0.start > self.document.frame }) ?? matches.first {
-            self.document.selection = cue.id; self.document.track = cue.track; media.stop(); seek(cue.start); refreshScript()
-        } else { await showError("Texte introuvable.") }
     }
     func markPosition() {
         perform { try self.document.commit { let count = $0.positions?.count ?? 0; if $0.positions == nil { $0.positions = [] }; $0.positions?.append(Marker(frame: self.document.frame, label: "Position \(count + 1)")) } }
@@ -171,9 +215,15 @@ extension WindowsEditor {
         self.projection = projection; projectionVideo = video; try? projection.activate()
     }
     func about() async {
-        let logo = Image(); logo.width = 220; logo.height = 165; logo.stretch = .uniform
+        let logo = Image(); logo.width = 176; logo.height = 132; logo.stretch = .uniform
+        logo.horizontalAlignment = .center
         let path = resources.appendingPathComponent(dark ? "CappellaLogo_dark.png" : "CappellaLogo.png")
         if FileManager.default.fileExists(atPath: path.path) { logo.source = BitmapImage(Uri(path.absoluteString)) }
-        _ = await dialog("À propos de Cappella", content: stack([logo, label("Cappella", size: 26), label("Version 0.9b"), label("nvssgoat")]), primary: "OK")
+        let title = label("Cappella", size: 26); title.fontWeight = FontWeights.semiBold
+        let version = dialogHint("Version 0.9b"), author = dialogHint("nvssgoat")
+        for text in [title, version, author] { text.textAlignment = .center; text.horizontalAlignment = .center }
+        let content = stack([logo, title, version, author], spacing: 12); content.width = 360
+        _ = await dialog("À propos de Cappella", content: content, primary: "OK",
+                         contentWidth: 360, defaultButton: .primary)
     }
 }

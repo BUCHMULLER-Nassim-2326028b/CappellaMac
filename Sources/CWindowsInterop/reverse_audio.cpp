@@ -5,13 +5,24 @@
 #include <mfreadwrite.h>
 #include <mferror.h>
 #include <wrl/client.h>
-#include <algorithm>
-#include <cstdio>
-#include <cstring>
-#include <vector>
+#include <stdio.h>
+#include <string.h>
 #include "include/desktop.h"
 
 using Microsoft::WRL::ComPtr;
+
+// Keep this bridge independent of the MSVC STL: newer runner toolsets can
+// require a newer Clang than the one bundled with the Swift toolchain.
+class PCMBuffer {
+    unsigned char *bytes;
+public:
+    explicit PCMBuffer(size_t size, bool zero = false)
+        : bytes(static_cast<unsigned char *>(HeapAlloc(GetProcessHeap(), zero ? HEAP_ZERO_MEMORY : 0, size))) {}
+    ~PCMBuffer() { if (bytes) HeapFree(GetProcessHeap(), 0, bytes); }
+    PCMBuffer(const PCMBuffer &) = delete;
+    PCMBuffer &operator=(const PCMBuffer &) = delete;
+    unsigned char *data() const { return bytes; }
+};
 
 // PCM is decoded incrementally. Only a one-second buffer is reversed at once;
 // channel order within each sample frame is preserved.
@@ -46,6 +57,8 @@ static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar
     if (actualRate != sampleRate || bits != 16 || actualChannels != channels || alignment != channels * 2)
         return MF_E_INVALIDMEDIATYPE;
 
+    PCMBuffer zeros((size_t)sampleRate * alignment, true);
+    if (!zeros.data()) return E_OUTOFMEMORY;
     FILE *decoded = nullptr, *outputs[2] = { nullptr, nullptr };
     wchar_t tempDirectory[MAX_PATH], tempFile[MAX_PATH];
     if (!GetTempPathW(MAX_PATH, tempDirectory) || !GetTempFileNameW(tempDirectory, L"cap", 0, tempFile))
@@ -55,13 +68,12 @@ static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar
     const UINT32 outputChannels = channels == 4 ? 2 : channels;
     const UINT32 outputCount = channels == 4 ? 2 : 1;
     const uint64_t maxFrames = (UINT32_MAX - 36ULL) / (outputChannels * 2);
-    std::vector<unsigned char> zeros(sampleRate * alignment, 0);
     uint64_t frames = 0;
     auto writeSilence = [&](uint64_t target) -> HRESULT {
         if (target > maxFrames) return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         while (frames < target) {
             if (cancelled && cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
-            size_t count = (size_t)std::min<uint64_t>(sampleRate, target - frames);
+            size_t count = (size_t)((target - frames) < sampleRate ? (target - frames) : sampleRate);
             if (fwrite(zeros.data(), alignment, count, decoded) != count) return E_FAIL;
             frames += count;
         }
@@ -120,7 +132,7 @@ static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar
             && value.vt == VT_UI8) {
             uint64_t tail = (value.uhVal.QuadPart / 10000000) * sampleRate
                           + (value.uhVal.QuadPart % 10000000) * sampleRate / 10000000;
-            hr = writeSilence(std::max(frames, tail));
+            hr = writeSilence((frames > tail ? frames : tail));
         }
         PropVariantClear(&value);
         if (FAILED(hr)) break;
@@ -139,11 +151,12 @@ static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar
                 fwrite("data", 1, 4, file) != 4 || fwrite(&size, 4, 1, file) != 1) { hr = E_FAIL; break; }
         }
         if (FAILED(hr)) break;
-        std::vector<unsigned char> input(sampleRate * alignment), output(sampleRate * outputChannels * 2);
+        PCMBuffer input((size_t)sampleRate * alignment), output((size_t)sampleRate * outputChannels * 2);
+        if (!input.data() || !output.data()) { hr = E_OUTOFMEMORY; break; }
         uint64_t end = frames;
         while (end) {
             if (cancelled && cancelled()) { hr = HRESULT_FROM_WIN32(ERROR_CANCELLED); break; }
-            size_t count = (size_t)std::min<uint64_t>(sampleRate, end);
+            size_t count = (size_t)(end < sampleRate ? end : sampleRate);
             if (_fseeki64(decoded, (__int64)((end - count) * alignment), SEEK_SET) ||
                 fread(input.data(), alignment, count, decoded) != count) { hr = E_FAIL; break; }
             for (UINT32 version = 0; version < outputCount; ++version) {

@@ -16,9 +16,8 @@ final class WindowsMedia {
     private var reverseAudio: WindowsReverseAudio?
     private var reversePlayers: [MediaPlayer] = []
     private var reverseReady: Set<Int> = []
-    private var reverseSeeking: Set<Int> = []
-    private var reverseSeekTargets: [Int: Double] = [:]
     private var reversePrepared = false
+    private var reverseFailure: String?
     private var requestedPosition = 0.0
     private var lastReverseVideoPosition: Double?
     var usingExternalAudio = false
@@ -34,7 +33,7 @@ final class WindowsMedia {
     var clock: MediaPlayer { usingExternalAudio || !hasVideo ? externalAudio : video }
     private var reverseClockIndex: Int { usingVI && reversePlayers.count > 1 ? 1 : 0 }
     var waitingForReverseAudio: Bool {
-        rate < 0 && (!reversePrepared || reverseReady.count < reversePlayers.count || !reverseSeeking.isEmpty)
+        rate < 0 && (!reversePrepared || reverseReady.count < reversePlayers.count)
     }
     var usesPlaybackClock: Bool { rate > 0 || !reversePlayers.isEmpty }
     var isAdvancing: Bool {
@@ -100,12 +99,13 @@ final class WindowsMedia {
             }
         }
         applyAudio()
+        prepareReverseAudio()
     }
     private func clearReverseAudio() {
         reverseGeneration = UUID(); reverseTask?.cancel(); reverseTask = nil
         for player in reversePlayers { try? player.pause(); player.source = nil; try? player.close() }
-        reversePlayers.removeAll(); reverseReady.removeAll(); reverseSeeking.removeAll(); reverseSeekTargets.removeAll()
-        reverseAudio = nil; reversePrepared = false
+        reversePlayers.removeAll(); reverseReady.removeAll()
+        reverseAudio = nil; reversePrepared = false; reverseFailure = nil
     }
     func unload() {
         guard !disposed else { return }
@@ -133,8 +133,7 @@ final class WindowsMedia {
         let position = TimeSpan(duration: Int64(requestedPosition * 10_000_000))
         if usingExternalAudio { externalAudio.playbackSession.position = position }
         if hasSeparateVI { viAudio.playbackSession.position = position }
-        seekReverseAudio()
-        if rate < 0 { startReverseAudio() }
+        if rate < 0 { seekReverseAudio(); startReverseAudio() }
     }
     private func seekReverseAudio() {
         guard let audio = reverseAudio else { return }
@@ -142,21 +141,18 @@ final class WindowsMedia {
         for (index, player) in reversePlayers.enumerated() where reverseReady.contains(index) {
             try? player.pause()
             let reversed = max(0, min(audio.durations[index], audio.durations[index] - original))
-            let actual = Double(player.playbackSession.position.duration) / 10_000_000
-            reverseSeekTargets[index] = reversed
-            if abs(actual - reversed) > 0.0001 {
-                reverseSeeking.insert(index)
-                player.playbackSession.position = TimeSpan(duration: Int64(reversed * 10_000_000))
-            } else { reverseSeeking.remove(index) }
+            // MediaPlayer queues the seek before Play, as in forward playback.
+            // Waiting for SeekCompleted here can stall a direction change.
+            player.playbackSession.position = TimeSpan(duration: Int64(reversed * 10_000_000))
         }
     }
     private func prepareReverseAudio() {
-        guard !reversePrepared, reverseTask == nil else { return }
+        guard !reversePrepared, reverseTask == nil, reverseFailure == nil else { return }
         guard !audioSources.isEmpty else { reversePrepared = true; return }
         let generation = reverseGeneration, sources = audioSources
         reverseTask = Task { @MainActor [weak self] in
             do {
-                let worker = Task.detached { try WindowsReverseAudio.prepare(sources: sources) }
+                let worker = Task.detached(priority: .utility) { try WindowsReverseAudio.prepare(sources: sources) }
                 let audio = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
                 try Task.checkCancellation()
                 guard let self, !self.disposed, self.reverseGeneration == generation else { return }
@@ -172,22 +168,11 @@ final class WindowsMedia {
                             self.seekReverseAudio(); self.startReverseAudio()
                         }
                     }
-                    player.playbackSession.seekCompleted.addHandler { [weak self] _, _ in
-                        DispatchQueue.main.async {
-                            guard let self, self.reverseGeneration == generation,
-                                  let target = self.reverseSeekTargets[index],
-                                  self.reversePlayers.indices.contains(index) else { return }
-                            let actual = Double(self.reversePlayers[index].playbackSession.position.duration) / 10_000_000
-                            guard abs(actual - target) < 0.05 else { return }
-                            self.reverseSeeking.remove(index)
-                            self.startReverseAudio()
-                        }
-                    }
                     player.mediaFailed.addHandler { [weak self] _, args in
                         let message = args?.errorMessage ?? "Lecture du son inversé impossible."
                         DispatchQueue.main.async {
                             guard let self, self.reverseGeneration == generation else { return }
-                            self.stop(); self.clearReverseAudio(); self.failed?(message)
+                            self.reverseAudioFailed(message)
                         }
                     }
                     player.source = MediaPlaybackItem(try MediaSource.createFromUri(Uri(url.absoluteString)))
@@ -196,33 +181,54 @@ final class WindowsMedia {
             } catch {
                 guard let self, !Task.isCancelled, self.reverseGeneration == generation else { return }
                 self.reverseTask = nil
-                self.stop(); self.clearReverseAudio(); self.failed?(error.localizedDescription)
+                self.reverseAudioFailed(error.localizedDescription)
             }
         }
+    }
+    private func reverseAudioFailed(_ message: String) {
+        let reversing = rate < 0
+        if reversing { stop() }
+        clearReverseAudio()
+        reverseFailure = message
+        // A background warm-up failure must not interrupt normal playback.
+        if reversing { failed?(message) }
     }
     private func startReverseAudio() {
         guard rate < 0, !waitingForReverseAudio else { return }
         applyAudio()
         for player in reversePlayers {
             player.playbackSession.playbackRate = abs(rate)
-            do { try player.play() } catch { stop(); clearReverseAudio(); failed?(error.localizedDescription); return }
+            do { try player.play() } catch { reverseAudioFailed(error.localizedDescription); return }
         }
         playbackChanged?()
     }
     func setRate(_ value: Double) throws {
         guard !disposed else { return }
+        if value < 0, let message = reverseFailure {
+            throw NSError(domain: "CappellaReverseAudio", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        // Snapshot the active clock before pausing or publishing the new
+        // direction. Preparation callbacks then use this position or a newer
+        // position supplied by the timeline while the audio is loading.
         let current = rate == 0 ? requestedPosition : position
         try video.pause(); try externalAudio.pause(); try viAudio.pause()
         for player in reversePlayers { try player.pause() }
+        requestedPosition = max(0, current)
         rate = value
-        seek(current)
         applyAudio()
-        if value > 0 {
-            if hasVideo { video.playbackSession.playbackRate = value; try video.play() }
-            if usingExternalAudio { externalAudio.playbackSession.playbackRate = value; try externalAudio.play() }
-            if hasSeparateVI { viAudio.playbackSession.playbackRate = value; try viAudio.play() }
-        } else if value < 0 {
-            prepareReverseAudio(); startReverseAudio()
+        if value < 0 {
+            lastReverseVideoPosition = nil
+            synchronizeReverseVideo(requestedPosition)
+            prepareReverseAudio()
+            seekReverseAudio()
+            startReverseAudio()
+        } else {
+            seek(requestedPosition)
+            if value > 0 {
+                if hasVideo { video.playbackSession.playbackRate = value; try video.play() }
+                if usingExternalAudio { externalAudio.playbackSession.playbackRate = value; try externalAudio.play() }
+                if hasSeparateVI { viAudio.playbackSession.playbackRate = value; try viAudio.play() }
+            }
         }
     }
     func stop() { try? setRate(0) }
