@@ -4,6 +4,9 @@ $repo = Split-Path $PSScriptRoot -Parent
 . "$PSScriptRoot/lib/WindowsBuild.ps1"
 Push-Location $repo
 try {
+    # Resolve once in PowerShell. cmd can inherit a different PATH resolution
+    # on GitHub runners; never ask it to locate the compiler by its bare name.
+    $swiftExe = (Get-Command swift.exe -CommandType Application -ErrorAction Stop).Source
     # Skip preparation only when the generated bindings match the configuration.
     # An unstamped cache is regenerated once.
     $configurationHash = (Get-FileHash -LiteralPath "$repo/windows/projections.json" -Algorithm SHA256).Hash
@@ -17,28 +20,30 @@ try {
     Sync-WindowsRuntimeSupport -RepositoryRoot $repo -ProjectionRoot "$repo/.windows/Projections"
     # Windows PowerShell 5.1 turns redirected native stderr (including compiler
     # warnings) into error records. Judge the compiler by its exit code.
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo '.build') | Out-Null
     $buildLog = Join-Path $repo ".build/windows-build-$Configuration.log"
     $ErrorActionPreference = 'Continue'
     try {
         # Merge inside cmd so PowerShell 5 does not turn each Swift diagnostic
         # line into a RemoteException. Configuration is restricted by ValidateSet.
-        $buildCommand = "swift build -c $Configuration --product CappellaWindows -j 4 2>&1"
-        & $env:ComSpec /d /c $buildCommand | Tee-Object -FilePath $buildLog | ForEach-Object { Write-Host $_ }
+        # /s strips the outer quote pair, preserving the quoted executable path.
+        $buildCommand = '""{0}" build -c {1} --product CappellaWindows -j 4 2>&1"' -f $swiftExe, $Configuration
+        & $env:ComSpec /d /s /c $buildCommand | Tee-Object -FilePath $buildLog | ForEach-Object { Write-Host $_ }
         $compileExitCode = $LASTEXITCODE
     } finally { $ErrorActionPreference = 'Stop' }
     if ($compileExitCode -ne 0) {
         Select-String -LiteralPath $buildLog -Pattern "error:" | Select-Object -First 12 | ForEach-Object { Write-Host $_.Line }
         throw "Compilation Windows échouée ($compileExitCode). Journal : $buildLog"
     }
-    $bin = (& swift build -c $Configuration --show-bin-path | Select-Object -Last 1).Trim()
-    if ($LASTEXITCODE -ne 0) { throw 'Répertoire Swift introuvable.' }
+    $binOutput = & $swiftExe build -c $Configuration --show-bin-path
+    if ($LASTEXITCODE -ne 0 -or !$binOutput) { throw 'Répertoire Swift introuvable.' }
+    $bin = ($binOutput | Select-Object -Last 1).Trim()
     $app = Join-Path $repo 'dist/Cappella-Windows-x64'
     New-Item -ItemType Directory -Force -Path "$app/Resources", "$app/Licenses" | Out-Null
     Copy-Item -LiteralPath (Join-Path $bin 'CappellaWindows.exe') -Destination "$app/Cappella.exe"
     Copy-Item -Path "$repo/packaging/Resources/*" -Destination "$app/Resources"
     Copy-Item -LiteralPath "$repo/.windows/microsoft.windowsappsdk.1.7.250909003/runtimes/win-x64/native/Microsoft.WindowsAppRuntime.Bootstrap.dll" -Destination $app
     # Swift DLLs must travel with the app; do not rely on the developer's PATH.
-    $swiftExe = (Get-Command swift).Source
     $swiftRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path $swiftExe -Parent) '../../../..'))
     $runtime = Get-ChildItem -LiteralPath (Join-Path $swiftRoot 'Runtimes') -Recurse -Filter 'swiftCore.dll' | Sort-Object FullName -Descending | Select-Object -First 1
     if (!$runtime) { throw "Runtime Swift introuvable sous $swiftRoot/Runtimes." }
