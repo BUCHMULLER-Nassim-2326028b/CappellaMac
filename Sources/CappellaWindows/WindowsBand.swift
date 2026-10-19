@@ -140,6 +140,7 @@ extension WindowsEditor {
                 guard textWidth > 0 else { continue }
                 let text = label(segment.text, size: self.document.preferences.fontSize, color: color)
                 text.fontFamily = font; text.fontStyle = .italic
+                text.textDecorations = cue.voice == "off" ? .underline : .none
                 try? text.measure(uiSize(width: 100_000, height: lane))
                 let naturalWidth = Double(text.desiredSize.width), naturalHeight = Double(text.desiredSize.height)
                 guard naturalWidth > 0 else { continue }

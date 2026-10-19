@@ -80,7 +80,7 @@ try {
             Remove-Item -LiteralPath $helperPath
         }
     }
-    Compress-Archive -LiteralPath $app -DestinationPath "$repo/dist/Cappella-$Version-Windows-$Architecture-Portable.zip" -Force
+    New-WindowsPortableArchive -ApplicationDirectory $app -Destination "$repo/dist/Cappella-$Version-Windows-$Architecture-Portable.zip"
     $distributionBytes = (Get-ChildItem -LiteralPath $app -Recurse -File | Measure-Object Length -Sum).Sum
     Write-Host ('Distribution décompressée : {0:N1} Mio.' -f ($distributionBytes / 1MB))
     Write-Host "Application : $app/Cappella.exe"

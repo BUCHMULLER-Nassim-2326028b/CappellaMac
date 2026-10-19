@@ -161,6 +161,7 @@ un petit projet d'exemple sans médias confidentiels aide à comprendre le cas.
 
 - [Signaler un problème ou proposer une amélioration](https://github.com/BUCHMULLER-Nassim-2326028b/CappellaMac/issues)
 - [Architecture et limites](docs/ARCHITECTURE.md)
+- [Raccourcis et écarts avec l'original](docs/RACCOURCIS.md)
 - [Scripts et contrôles CI](docs/SCRIPTS.md)
 - [Préparer une release GitHub](docs/RELEASES.md)
 - [Références du logiciel d'origine](docs/reference/README.md)

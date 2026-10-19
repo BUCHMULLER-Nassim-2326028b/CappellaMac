@@ -1,8 +1,7 @@
 ﻿param([Parameter(Mandatory=$true)][string]$Executable, [Parameter(Mandatory=$true)][string]$Icon, [ValidateSet('x64','arm64')][string]$Architecture = 'x64')
 $ErrorActionPreference = 'Stop'
 # PE resources only: the application UI is implemented with WinUI controls.
-if (!('CappellaPEResources' -as [type])) {
-Add-Type -TypeDefinition @'
+$nativeSource = @'
 using System;
 using System.IO;
 using System.Text;
@@ -59,7 +58,17 @@ public static class CappellaPEResources {
         } finally { if (!committed) EndUpdateResourceW(handle,true); }
     }
 }
+
 '@
+# Add-Type definitions live for the entire PowerShell process. Key the type by
+# its source so a script update never reuses an older, incompatible helper.
+$hasher = [Security.Cryptography.SHA256]::Create()
+try { $digest = $hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($nativeSource)) }
+finally { $hasher.Dispose() }
+$typeName = 'CappellaPEResources_' + [BitConverter]::ToString($digest).Replace('-', '')
+$resourceType = $typeName -as [type]
+if (!$resourceType) {
+    $resourceType = Add-Type -TypeDefinition $nativeSource.Replace('CappellaPEResources', $typeName) -PassThru
 }
 $manifest = @'
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -76,7 +85,7 @@ $manifest = @'
 '@
 $manifestArchitecture = if ($Architecture -eq 'arm64') { 'arm64' } else { 'amd64' }
 $manifest = $manifest.Replace('processorArchitecture="amd64"', ('processorArchitecture="' + $manifestArchitecture + '"'))
-[CappellaPEResources]::Embed((Resolve-Path -LiteralPath $Executable).Path, (Resolve-Path -LiteralPath $Icon).Path, $manifest)
+$resourceType::Embed((Resolve-Path -LiteralPath $Executable).Path, (Resolve-Path -LiteralPath $Icon).Path, $manifest)
 
 $machine = if ($Architecture -eq 'arm64') { [uint16]0xAA64 } else { [uint16]0x8664 }
-[CappellaPEResources]::UseWindowsSubsystem((Resolve-Path -LiteralPath $Executable).Path, $machine)
+$resourceType::UseWindowsSubsystem((Resolve-Path -LiteralPath $Executable).Path, $machine)

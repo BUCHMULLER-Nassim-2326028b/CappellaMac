@@ -73,6 +73,7 @@ final class WindowsEditor {
     var timelineScrollEnd = 0
     var updatingTimelineScrollbar = false
     var timelineScrollRangeCache: TimelineScrollRange?
+    var timelineWheelScroll = TimelineWheelScroll()
     let bandContainer = Grid()
     let editorLayer = Canvas()
     let timecode = label("00:00:00:00", size: 28, color: ink(0xFFFFFF))
@@ -89,6 +90,7 @@ final class WindowsEditor {
     let timer = DispatcherTimer()
     var textEditor: TextBox?
     var textEditorCue: UUID?
+    var pendingReaction: UUID?
     var changingText = false
     var dialogShowing = false
     var activeDialog: ContentDialog?
@@ -121,6 +123,7 @@ final class WindowsEditor {
         bandContainer.sizeChanged.addHandler { [weak self] _, _ in self?.renderBand(); self?.updateTextEditor(); self?.refreshTimelineScrollbar() }
         bandContainer.pointerPressed.addHandler { [weak self] _, args in self?.pointerPressed(args) }
         bandContainer.pointerMoved.addHandler { [weak self] _, args in self?.pointerMoved(args) }
+        bandContainer.pointerWheelChanged.addHandler { [weak self] _, args in self?.scrollTimeline(args) }
         bandContainer.pointerReleased.addHandler { [weak self] _, args in self?.pointerReleased(args) }
         bandContainer.rightTapped.addHandler { [weak self] _, args in self?.contextMenu(args) }
         vo.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = false; media.applyAudio(); refreshClock() }

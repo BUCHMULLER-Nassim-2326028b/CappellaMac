@@ -13,6 +13,7 @@ struct RythmoView: View {
     var selectedSign: UUID?
     var selectedTrack: Int? = nil
     var editingCue: UUID? = nil
+    var scrollBy: ((Double) -> Void)? = nil
     var selectTrack: (Int) -> Void = { _ in }
     var moveSign: (UUID, UUID, Int) -> Void = { _, _, _ in }
     var editCue: (UUID, Int) -> Void = { _, _ in }
@@ -73,7 +74,7 @@ struct RythmoView: View {
                         let x = cursor + CGFloat(segment.start - frame) * scale
                         let segmentWidth = CGFloat(segment.end - segment.start) * scale
                         guard segmentWidth > 0, x + segmentWidth >= 0, x <= size.width else { continue }
-                        let text = laneContext.resolve(Text(segment.text).font(.custom(fontName, size: CGFloat(fontSize))).foregroundColor(color))
+                        let text = laneContext.resolve(Text(segment.text).underline(cue.voice == "off").font(.custom(fontName, size: CGFloat(fontSize))).foregroundColor(color))
                         let measured = text.measure(in: CGSize(width: 100000, height: laneHeight))
                         guard measured.width > 0 else { continue }
                         var textContext = laneContext
@@ -139,7 +140,7 @@ struct RythmoView: View {
                 context.fill(Path(CGRect(x: cursor - 1, y: 0, width: 2, height: size.height)), with: .color(Color(red: 0.77, green: 0, blue: 0)))
             }
             .overlay {
-                TimelineContextMenu(menuAt: { point in menu(at: point, size: geometry.size) }, textRects: textCursorRects(size: geometry.size))
+                TimelineContextMenu(menuAt: { point in menu(at: point, size: geometry.size) }, textRects: textCursorRects(size: geometry.size), scrollBy: scrollBy)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in

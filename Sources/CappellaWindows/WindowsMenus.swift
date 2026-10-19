@@ -53,7 +53,7 @@ extension WindowsEditor {
             MenuFlyoutSeparator(),
             asyncItem("Ouvrir l'image…", shortcut: "Ctrl+Maj+V") { [unowned self] in await chooseMedia(audio: false) },
             asyncItem("Propriétés…", shortcut: "Ctrl+P") { [unowned self] in await properties() },
-            asyncItem("Exporter le script…") { [unowned self] in await exportText(crossTable: false) },
+            asyncItem("Exporter le script…", shortcut: "Ctrl+E") { [unowned self] in await exportText(crossTable: false) },
             asyncItem("Exporter le croisillé…") { [unowned self] in await exportText(crossTable: true) },
             MenuFlyoutSeparator(),
             menuItem("Quitter") { [unowned self] in try? window.close() }
@@ -107,8 +107,9 @@ extension WindowsEditor {
         menu("Contrôle", control)
         menu("Position", [asyncItem("Aller au timecode…", shortcut: "Ctrl+G") { [unowned self] in await goTimecode() }, menuItem("Marquer cette position", shortcut: "Ctrl+D") { [unowned self] in markPosition() }])
         menu("Affichage", [
-            checkedMenuItem("Détection", checked: { [unowned self] in self.document.preferences.showDetection }) { [unowned self] in self.document.preferences.showDetection.toggle(); savePreferences(); refresh() },
-            checkedMenuItem("Grille et signes", checked: { [unowned self] in self.document.preferences.showGrid }) { [unowned self] in self.document.preferences.showGrid.toggle(); savePreferences(); refresh() },
+            checkedMenuItem("Détection", shortcut: "Ctrl+Alt+F9", checked: { [unowned self] in self.document.preferences.showDetection }) { [unowned self] in self.document.preferences.showDetection.toggle(); savePreferences(); refresh() },
+            checkedMenuItem("Grille et signes", shortcut: "Ctrl+Alt+F10", checked: { [unowned self] in self.document.preferences.showGrid }) { [unowned self] in self.document.preferences.showGrid.toggle(); savePreferences(); refresh() },
+            menuItem("Plein écran", shortcut: "Alt+Entrée") { [unowned self] in toggleFullScreen() },
             menuItem("Zoom avant", shortcut: "+") { [unowned self] in zoom(1.25) },
             menuItem("Zoom arrière", shortcut: "−") { [unowned self] in zoom(0.8) },
             menuItem("Écran de contrôle") { [unowned self] in showProjection() }
@@ -116,13 +117,13 @@ extension WindowsEditor {
         menu("Audio", [
             checkedMenuItem("Basculer VO / VI", shortcut: "F2", checked: { [unowned self] in media.usingVI }) { [unowned self] in media.toggleVI(); refreshClock() },
             asyncItem("Ouvrir le son…") { [unowned self] in await chooseMedia(audio: true) },
-            menuItem("Monter le volume") { [unowned self] in media.volume = min(1, media.volume + 0.1); media.applyAudio() },
-            menuItem("Baisser le volume") { [unowned self] in media.volume = max(0, media.volume - 0.1); media.applyAudio() },
-            checkedMenuItem("Couper le son", checked: { [unowned self] in media.muted }) { [unowned self] in media.muted.toggle(); media.applyAudio() }
+            menuItem("Monter le volume", shortcut: "Ctrl++") { [unowned self] in media.volume = min(1, media.volume + 0.1); media.applyAudio() },
+            menuItem("Baisser le volume", shortcut: "Ctrl+-") { [unowned self] in media.volume = max(0, media.volume - 0.1); media.applyAudio() },
+            checkedMenuItem("Couper le son", shortcut: "Ctrl+*", checked: { [unowned self] in media.muted }) { [unowned self] in media.muted.toggle(); media.applyAudio() }
         ])
         menu("Aide", [
             menuItem("Documentation", shortcut: "F1") { [unowned self] in openWeb("https://cappella.app/") },
-            menuItem("Raccourcis clavier") { [unowned self] in openWeb("https://cappella.app/documentation11.html") },
+            menuItem("Raccourcis clavier") { [unowned self] in openWeb("https://cappella.app/documentation13.html") },
             menuItem("Rechercher des mises à jour") { [unowned self] in openWeb("https://github.com/BUCHMULLER-Nassim-2326028b/CappellaMac/releases") },
             asyncItem("À propos de Cappella") { [unowned self] in await about() }
         ])
@@ -204,14 +205,39 @@ extension WindowsEditor {
     }
     func handleShortcut(key: Int, ctrl: Bool, alt: Bool, shift: Bool, isRepeat: Bool) -> Bool {
         guard !dialogShowing, !isClosed else { return false }
+        // Function-key commands and deliberate Ctrl+Alt arrows are not AltGr.
+        if ctrl && alt && [120, 121].contains(key) {
+            if key == 120 { self.document.preferences.showDetection.toggle() }
+            else { self.document.preferences.showGrid.toggle() }
+            savePreferences(); refresh(); return true
+        }
+        if ctrl && alt && [37, 39].contains(key) {
+            moveSelectedSign(key == 37 ? -1 : 1, textAnchor: true); return true
+        }
+        if ctrl && !alt && key == 13, let input = textEditor, timelineTextHasFocus {
+            input.selectedText = "\n"; return true
+        }
+        if !ctrl && !alt && self.document.editing, let character = shortcutCharacter(key),
+           character == "²" || character == "&" {
+            jumpToTextAnchor(character == "&" ? 1 : -1); return true
+        }
         if timelineTextHasFocus {
             // AltGr is reported as Ctrl+Alt on Windows. Let native text services
             // translate it, together with dead keys and text-editing shortcuts.
             if ctrl && alt { return false }
             if !ctrl && !alt && ![13, 27].contains(key) { return false }
-            if ctrl && !alt && [65, 67, 88, 86, 90, 89, 8, 46, 35, 36, 37, 39].contains(key) { return false }
+            if ctrl && !alt && ([65, 67, 88, 90, 89, 8, 35, 36, 37, 39].contains(key) || (key == 86 && !shift)) { return false }
         }
         if ctrl {
+            // Resolve +, - and * on both the main keyboard and numeric keypad.
+            if !alt, let character = shortcutCharacter(key, ignoringControl: true) {
+                if character == "+" { changeVolume(0.1); return true }
+                if character == "-" { changeVolume(-0.1); return true }
+                if character == "*" {
+                    if !isRepeat { media.muted.toggle(); media.applyAudio(); refreshClock() }
+                    return true
+                }
+            }
             switch key {
             case 78: Task { await newProject() }
             case 79: Task { if let url = await pickFile([".detx", ".cappellaproject"]) { await open(url) } }
@@ -220,12 +246,20 @@ extension WindowsEditor {
             case 89: self.document.redo()
             case 67 where !timelineTextHasFocus: copyPhrase()
             case 88 where !timelineTextHasFocus: copyPhrase(cut: true)
+            case 86 where shift: Task { await chooseMedia(audio: false) }
             case 86 where !timelineTextHasFocus: Task { await pastePhrase() }
+            case 69 where !shift: Task { await exportText(crossTable: false) }
+            case 37, 39: moveSelectedSign(key == 37 ? -1 : 1)
+            case 98: addSign("in_close")
+            case 99: addSign("out_close")
+            case 107, 187: changeVolume(0.1)
+            case 109, 189: changeVolume(-0.1)
+            case 106: if !isRepeat { media.muted.toggle(); media.applyAudio(); refreshClock() }
             case 70: Task { await find() }
             case 71: Task { await goTimecode() }
             case 80: Task { await properties() }
             case 82: Task { await roles() }
-            case 85: perform { try self.document.mutateCue { $0.voice = $0.voice == "off" ? nil : "off" } }
+            case 85: if !isRepeat { perform { try self.document.mutateCue { $0.voice = $0.voice == "off" ? nil : "off" } } }
             case 38: self.document.selectTrack(self.document.track - 1)
             case 40: self.document.selectTrack(self.document.track + 1)
             case 46: perform { try self.document.deletePhrase() }
@@ -240,12 +274,14 @@ extension WindowsEditor {
             case 32:
                 if !isRepeat { togglePlay() }
                 return true
-            case 38: setRate(1)
-            case 40: setRate(-1)
+            case 38: if !isRepeat { setRate(media.rate == 1 ? 0 : 1) }
+            case 40: if !isRepeat { setRate(media.rate == -1 ? 0 : -1) }
             case 37: if alt { media.stop(); seek(self.document.frame - 1) } else { navigate("sign", -1) }
             case 39: if alt { media.stop(); seek(self.document.frame + 1) } else { navigate("sign", 1) }
+            case 13 where alt: toggleFullScreen()
             case 13: Task { await toggleEditing() }
             case 27: self.document.cancelEditing(); updateTextEditor()
+            case 112: openWeb("https://cappella.app/")
             case 113: media.toggleVI(); refreshClock()
             case 115: perform { try self.document.project.validate() }
             case 116...119: self.document.selectTrack(key - 116)
@@ -254,7 +290,12 @@ extension WindowsEditor {
             case 122: navigate("loop", -1)
             case 123: navigate("loop", 1)
             case 9: navigate("phrase", shift ? 1 : -1)
-            case 46: perform { try self.document.removeSign() }
+            case 46:
+                if let cue = self.document.selectedCue, let id = self.document.signSelection,
+                   let index = cue.anchors.firstIndex(where: { $0.id == id }),
+                   index > 0, index < cue.anchors.count - 1 {
+                    perform { try self.document.removeSign() }
+                } else { perform { try self.document.deletePhrase() } }
             case 107, 187: zoom(1.25)
             case 109, 189: zoom(0.8)
             case 96: addMarker(loop: true)
@@ -267,7 +308,18 @@ extension WindowsEditor {
             case 103: addSign("a")
             case 104: addSign("o")
             case 105: addSign("weuque")
-            default: return false
+            default:
+                guard !alt, let character = shortcutCharacter(key) else { return false }
+                switch character.lowercased() {
+                case "v": if !isRepeat { setRate(media.rate == -0.75 ? 0 : -0.75) }
+                case "b": if !isRepeat { setRate(media.rate == -0.25 ? 0 : -0.25) }
+                case "n": if !isRepeat { setRate(media.rate == 0.25 ? 0 : 0.25) }
+                case ",": if !isRepeat { setRate(media.rate == 0.75 ? 0 : 0.75) }
+                default:
+                    let normalized = shift ? character.uppercased() : character.lowercased()
+                    guard let text = ReactionShortcuts.text(for: normalized) else { return false }
+                    if !isRepeat { Task { await reaction(text) } }
+                }
             }
         }
         return true

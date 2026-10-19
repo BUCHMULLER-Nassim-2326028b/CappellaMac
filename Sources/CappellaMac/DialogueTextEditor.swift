@@ -8,6 +8,7 @@ struct DialogueTextEditor: NSViewRepresentable {
     @Binding var caret: Int
     var fontName = "Apple Chancery"
     var fontSize = 28.0
+    var underlined = false
     var menuProvider: (() -> NSMenu?)? = nil
 
     /// Measure the same font used by NSTextView, including space for its caret.
@@ -38,6 +39,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         view.textContainer?.lineFragmentPadding = 0
         view.minSize = NSSize(width: 8, height: CGFloat(fontSize) + 4); view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.string = text
+        view.setVoiceOff(underlined, force: true)
         view.sizeToFit()
         view.setSelectedRange(NSRange(location: Self.utf16Offset(caret, in: text), length: 0))
         view.delegate = context.coordinator; scroll.documentView = view
@@ -49,7 +51,9 @@ struct DialogueTextEditor: NSViewRepresentable {
         guard let view = scroll.documentView as? FocusedTextView, !view.hasMarkedText() else { return }
         context.coordinator.updating = true
         defer { context.coordinator.updating = false }
-        if view.string != text { view.string = text }
+        let changedText = view.string != text
+        if changedText { view.string = text }
+        view.setVoiceOff(underlined, force: changedText)
         let target = Self.utf16Offset(caret, in: view.string)
         if view.selectedRange().length == 0, view.selectedRange().location != target {
             view.setSelectedRange(NSRange(location: target, length: 0)); view.scrollRangeToVisible(view.selectedRange())
@@ -84,6 +88,14 @@ struct DialogueTextEditor: NSViewRepresentable {
         }
     }
     final class FocusedTextView: NSTextView {
+        private var voiceOff = false
+        func setVoiceOff(_ value: Bool, force: Bool = false) {
+            guard force || voiceOff != value else { return }
+            voiceOff = value
+            let style = value ? NSUnderlineStyle.single.rawValue : 0
+            typingAttributes[.underlineStyle] = style
+            textStorage?.addAttribute(.underlineStyle, value: style, range: NSRange(location: 0, length: string.utf16.count))
+        }
         var menuProvider: (() -> NSMenu?)?
         override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() ?? super.menu(for: event) }
         private var pendingFocus = true

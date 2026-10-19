@@ -36,6 +36,7 @@ struct EditorView: View {
     @State private var pendingEdit = true
     @State private var currentTrack = 0
     @State private var caret = 0
+    @State private var timelineWheelScroll = TimelineWheelScroll()
     @State private var detectionMode = false
     @State private var panel: EditorPanel?
     @State private var query = ""
@@ -85,6 +86,17 @@ struct EditorView: View {
                 RythmoView(project: project, frame: frame, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize,
                            showGrid: showGrid, showDetection: showDetection, selectedSign: selectedSign, selectedTrack: currentTrack,
                            editingCue: editingPhrase ? selection : nil,
+                           scrollBy: { steps in
+                               if editingPhrase { finishPhrase() }
+                               transport.setRate(0)
+                               let range = TimelineScrollRange(startFrame: project.mediaStartFrame,
+                                   endFrame: TimelineScrollRange.contentEnd(in: project),
+                                   framesPerSecond: project.framesPerSecond, mediaDuration: transport.duration,
+                                   viewportWidth: geometry.size.width, pixelsPerSecond: pixelsPerSecond)
+                               if let target = timelineWheelScroll.target(currentFrame: frame, stepDelta: steps, range: range) {
+                                   seek(to: target)
+                               }
+                           },
                            selectTrack: { track in
                                if editingPhrase { finishPhrase() }
                                currentTrack = track; selectedSign = nil; selection = nil
@@ -229,7 +241,7 @@ struct EditorView: View {
             let width = DialogueTextEditor.fittingWidth(cue.text, fontName: fontName, fontSize: fontSize)
             DialogueTextEditor(text: Binding(get: { selectedCue?.text ?? "" }, set: { value in
                 mutateSelected { $0.editText(value) }
-            }), caret: $caret, fontName: fontName, fontSize: fontSize, menuProvider: { phraseContextMenu(cue.id, nil) })
+            }), caret: $caret, fontName: fontName, fontSize: fontSize, underlined: cue.voice == "off", menuProvider: { phraseContextMenu(cue.id, nil) })
                 .frame(width: min(width, max(8, geometry.size.width - left)), height: geometry.size.height / 4 - 2)
                 .offset(x: left, y: CGFloat(cue.track) * geometry.size.height / 4 + 1)
                 .id(cue.id)
@@ -375,6 +387,11 @@ struct EditorView: View {
             let next = direction > 0 ? signs.first(where: { $0.textOffset > caret }) : signs.last(where: { $0.textOffset < caret })
             if let next { caret = next.textOffset; selectedSign = next.id; seek(to: next.frame) }
         case .addPhrase: pendingEdit = true; addPhrase(kind: "in_open")
+        case .deleteSelection:
+            if let cue = selectedCue, let id = selectedSign,
+               let index = cue.anchors.firstIndex(where: { $0.id == id }),
+               index > 0, index < cue.anchors.count - 1 { perform(.deleteSign) }
+            else { perform(.deletePhrase) }
         case .deletePhrase:
             if let id = selection { project.cues.removeAll { $0.id == id } }
             selection = nil; selectedSign = nil; editingPhrase = false

@@ -132,3 +132,58 @@ function Get-WindowsPEArchitecture {
         }
     } finally { $reader.Dispose(); $stream.Dispose() }
 }
+
+function New-WindowsPortableArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ApplicationDirectory,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    Add-Type -AssemblyName System.IO.Compression
+    $directory = (Get-Item -LiteralPath $ApplicationDirectory).FullName.TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $destinationPath = [IO.Path]::GetFullPath($Destination)
+    if ($destinationPath.StartsWith($directory + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Le ZIP doit être créé en dehors du dossier de l''application.'
+    }
+    $suffix = [guid]::NewGuid().ToString('N')
+    $partial = $destinationPath + '.partial-' + $suffix
+    $backup = $destinationPath + '.previous-' + $suffix
+    $published = $false
+    try {
+        $output = [IO.File]::Open($partial, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $archive = [IO.Compression.ZipArchive]::new($output, [IO.Compression.ZipArchiveMode]::Create, $true)
+            try {
+                foreach ($file in Get-ChildItem -LiteralPath $directory -Recurse -File -Force | Sort-Object FullName) {
+                    $sourceStream = $null
+                    # Compress-Archive in PowerShell 5 uses exclusive reads.
+                    # Permit readers (loaded DLLs/scanners), but reject writers.
+                    for ($attempt = 0; $attempt -lt 4; $attempt++) {
+                        try {
+                            $sourceStream = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                            break
+                        } catch [IO.IOException] {
+                            if ($attempt -eq 3) {
+                                throw "Archive impossible : $($file.FullName) est inaccessible. Fermer l'application ou le processus qui verrouille ce fichier, puis relancer. $($_.Exception.Message)"
+                            }
+                            Start-Sleep -Milliseconds 150
+                        }
+                    }
+                    try {
+                        $relative = $file.FullName.Substring($directory.Length + 1).Replace('\', '/')
+                        $entry = $archive.CreateEntry((Split-Path $directory -Leaf) + '/' + $relative, [IO.Compression.CompressionLevel]::Optimal)
+                        $entryOutput = $entry.Open()
+                        try { $sourceStream.CopyTo($entryOutput) } finally { $entryOutput.Dispose() }
+                    } finally { $sourceStream.Dispose() }
+                }
+            } finally { $archive.Dispose() }
+        } finally { $output.Dispose() }
+        # Publish only a complete archive; keep the previous ZIP if anything fails.
+        if (Test-Path -LiteralPath $destinationPath -PathType Leaf) {
+            [IO.File]::Replace($partial, $destinationPath, $backup)
+        } else { [IO.File]::Move($partial, $destinationPath) }
+        $published = $true
+    } finally {
+        if (Test-Path -LiteralPath $partial -PathType Leaf) { Remove-Item -LiteralPath $partial }
+        if ($published -and (Test-Path -LiteralPath $backup -PathType Leaf)) { Remove-Item -LiteralPath $backup }
+    }
+}

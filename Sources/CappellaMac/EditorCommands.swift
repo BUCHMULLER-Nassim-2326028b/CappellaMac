@@ -10,7 +10,7 @@ enum EditorAction {
     case openMedia, openVI, importDetX, importRoles, exportDetX, exportScript, exportCrossTable
     case roles, changeRole, properties, find, goTimecode, shift, timestamp, check, preferences
     case playPause, stop, step(Int), rate(Float), navigate(String, Int)
-    case addPhrase, deletePhrase, track(Int), mode, addSign(String), deleteSign, shiftSign(Int), voiceOff
+    case addPhrase, deletePhrase, deleteSelection, track(Int), mode, addSign(String), deleteSign, shiftSign(Int), voiceOff
     case addLoop, addShot, markPosition, positions, zoom(Double), grid, detection, fullScreen, projection
     case toggleVI, mute, volume(Float), recordAudio, detectShots
     case detachSign, changeSignType(String)
@@ -203,11 +203,12 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                         case "c" where !typing: action = .copyPhrase
                         case "x" where !typing: action = .cutPhrase
                         case "v" where !typing && !shift: action = .pastePhrase
+                        case "e": action = shift ? nil : .exportScript
                         case "r": action = .roles
                         case "f": action = .find
                         case "g": action = .goTimecode
                         case "p": action = .properties
-                        case "u": action = .voiceOff
+                        case "u": if !event.isARepeat { action = .voiceOff } else { return nil }
                         case "d": action = shift ? .detachSigns : .markPosition
                         case "v" where shift: action = .openMedia
                         case "+", "=": action = .volume(0.1)
@@ -247,9 +248,9 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                     case 49 where !typing: action = .playPause
                     case 123 where !typing || alt: action = alt ? .step(-1) : .navigate("sign", -1)
                     case 124 where !typing || alt: action = alt ? .step(1) : .navigate("sign", 1)
-                    case 126 where !typing: action = .rate(1)
+                    case 126 where !typing: action = .playPause
                     case 125 where !typing: action = .rate(-1)
-                    case 117 where !typing: action = .deleteSign
+                    case 117 where !typing: action = .deleteSelection
                     default:
                         if !typing {
                             switch key {
@@ -270,10 +271,10 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                             case "n", "N": action = .rate(0.25)
                             case ",": action = .rate(0.75)
                             default:
-                                let reactions = ["a":"ah", "o":"oh", "l":"(pleure)", "p":"(peur)", "j":"(joie)", "u":"euh", "U":"huh !",
-                                    "i":"(rire)", "g":"grrr", "G":"argh !", "e":"(effort)", "c":"(course)", "f":"fff", "h":"hhh", "H":"han !",
-                                    "m":"(mts)", "M":"mmm", "t":"(tst)", "s":"(snif)", "x":"(X)", "?":"(reac ?)", "r":"(reac)"]
-                                if let text = reactions[event.characters ?? key] { action = .reaction(text) }
+                                let character = event.characters ?? key
+                                if let text = ReactionShortcuts.text(for: shift ? character.uppercased() : character.lowercased()) {
+                                    action = .reaction(text)
+                                }
                             }
                         }
                     }
@@ -291,6 +292,12 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                         view.keyDown(with: event); return nil
                     }
                     return event
+                }
+                if event.isARepeat {
+                    switch action {
+                    case .playPause, .rate(_), .reaction(_), .voiceOff: return nil
+                    default: break
+                    }
                 }
                 self.perform?(action); return nil
             }

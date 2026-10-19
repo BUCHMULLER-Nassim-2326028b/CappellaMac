@@ -18,6 +18,22 @@ extension WindowsEditor {
             seek(Int(timelineScrollRange().clamped(args.newValue).rounded()))
         }
     }
+    func scrollTimeline(_ args: PointerRoutedEventArgs?) {
+        guard !isClosed, !dialogShowing, let args,
+              let point = try? args.getCurrentPoint(bandContainer),
+              !point.properties.isHorizontalMouseWheel else { return }
+        let delta = point.properties.mouseWheelDelta
+        guard delta != 0 else { return }
+        args.handled = true
+        media.stop()
+        // Windows defines one vertical wheel notch as 120, positive upward.
+        let steps = -Double(delta) / 120
+        if let target = timelineWheelScroll.target(currentFrame: self.document.frame, stepDelta: steps,
+            range: timelineScrollRange()) {
+            self.document.finishEditing(); updateTextEditor()
+            seek(target)
+        }
+    }
     func timelineScrollRange() -> TimelineScrollRange {
         if timelineScrollRevision != self.document.revision {
             timelineScrollEnd = TimelineScrollRange.contentEnd(in: self.document.project)

@@ -2,16 +2,17 @@ import SwiftUI
 import AppKit
 import CappellaCore
 
-/// Participate only in secondary clicks so left clicks, text selection and
-/// sign drags continue to reach their existing handlers.
+/// Secondary clicks and wheel navigation leave left clicks, text selection and
+/// sign drags to their existing handlers.
 struct TimelineContextMenu: NSViewRepresentable {
     var menuAt: (CGPoint) -> NSMenu?
     var textRects: [CGRect] = []
+    var scrollBy: ((Double) -> Void)? = nil
     func makeNSView(context: Context) -> MenuView {
-        let view = MenuView(); view.menuAt = menuAt; view.textRects = textRects; return view
+        let view = MenuView(); view.menuAt = menuAt; view.textRects = textRects; view.scrollBy = scrollBy; return view
     }
     func updateNSView(_ view: MenuView, context: Context) {
-        view.menuAt = menuAt
+        view.menuAt = menuAt; view.scrollBy = scrollBy
         if view.textRects != textRects {
             view.textRects = textRects
             view.window?.invalidateCursorRects(for: view)
@@ -20,7 +21,33 @@ struct TimelineContextMenu: NSViewRepresentable {
     final class MenuView: NSView {
         var menuAt: (CGPoint) -> NSMenu? = { _ in nil }
         var textRects: [CGRect] = []
+        var scrollBy: ((Double) -> Void)?
+        private var wheelMonitor: Any?
         override var isFlipped: Bool { true }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor); self.wheelMonitor = nil }
+            guard window != nil else { return }
+            // Observe before NSTextView/SwiftUI can consume the wheel, including
+            // while editing a cue. Scope strictly to this visible band/window.
+            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, let scrollBy = self.scrollBy,
+                      self.window === event.window,
+                      self.window?.attachedSheet == nil, !self.isHiddenOrHasHiddenAncestor,
+                      self.bounds.contains(self.convert(event.locationInWindow, from: nil)),
+                      event.scrollingDeltaY != 0 else { return event }
+                // Discrete wheels can report several scroll lines for one
+                // notch. Use its direction, not that accelerated line count.
+                let steps = event.hasPreciseScrollingDeltas
+                    ? -Double(event.scrollingDeltaY) / 10
+                    : (event.scrollingDeltaY < 0 ? 1.0 : -1.0)
+                scrollBy(steps)
+                return nil
+            }
+        }
+        deinit {
+            if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+        }
         override func resetCursorRects() {
             super.resetCursorRects()
             for rect in textRects {

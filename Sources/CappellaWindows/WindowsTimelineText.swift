@@ -72,7 +72,7 @@ extension WindowsEditor {
             input.background = brush(0, 0, 0, alpha: 0)
             input.borderThickness = Thickness(); input.padding = Thickness()
             input.minWidth = 0; input.minHeight = 0
-            input.acceptsReturn = false; input.textWrapping = .noWrap
+            input.acceptsReturn = true; input.textWrapping = .noWrap
             input.isSpellCheckEnabled = false; input.isTextPredictionEnabled = false
             input.text = cue.text
             input.textChanged.addHandler { [weak self, weak input] _, _ in
