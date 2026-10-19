@@ -1,0 +1,48 @@
+name: Native Windows (Swift-WinRT)
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: ['**']
+    paths: ['Sources/**', 'Tests/**', 'Package.swift', 'windows/**', 'packaging/**', 'scripts/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['Sources/**', 'Tests/**', 'Package.swift', 'windows/**', 'packaging/**', 'scripts/**', '.github/workflows/windows.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: compnerd/gha-setup-vsdevenv@5eb3eae1490d4f7875d574c4973539f69109700d
+      - uses: compnerd/gha-setup-swift@db4ffac97c2db518c2ff4f37f988af89e4411240
+        with:
+          swift-version: swift-6.2-release
+          swift-build: 6.2-RELEASE
+      - name: Generate WinRT projections
+        shell: pwsh
+        run: ./scripts/prepare-windows.ps1
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          swift test -c release -j 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build portable application
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -SkipPrepare
+      - name: Install WinUI runtime
+        shell: pwsh
+        run: ./windows/Installer-runtime.ps1
+      - name: Launch empty editor and open DetX
+        shell: pwsh
+        run: |
+          ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe
+          ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture Tests/Fixtures/layout.detx
+          ./scripts/check-windows-activation.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture Tests/Fixtures/layout.detx
+          python scripts/make_load_fixture.py dist/load.detx --count 1000
+          ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture dist/load.detx -ExpectedCues 1000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cappella-Windows-x64
+          path: dist/Cappella-Windows-x64.zip
+          if-no-files-found: error

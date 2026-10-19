@@ -1,7 +1,8 @@
 # Cappella Swift - réécriture native visant la parité avec Cappella 3.7
 
-Le premier prototype démarre sur Mac Apple Silicon. La version 0.2.0 reprend
-la disposition de Cappella Windows et étend l'édition et la synchronisation.
+Cappella dispose d’une interface native macOS (SwiftUI/AppKit) et d’un portage
+Windows en cours, utilisant WinUI 3 avec Swift-WinRT. Le moteur DetX et les règles
+d’édition sont partagés entre les deux plateformes.
 **La parité complète avec le programme d'origine n'est pas encore atteinte.**
 Sans les sources C++, il s'agit d'une réécriture Swift fondée sur les fichiers,
 ressources et comportements observés, pas d'une recompilation du code original.
@@ -14,8 +15,8 @@ Le curseur est centré, et le texte est étiré entre les signes de synchronisat
 Voir la [référence visuelle](docs/REFERENCE_LAYOUT.md).
 
 Les réglages passent par les menus : Contrôle, Position, Affichage, Audio,
-Rôles, Propriétés, Recherche et Préférences. Double-cliquer sur une phrase pour
-modifier son texte, son rôle, sa piste et ses bornes. Glisser un signe dans la
+Rôles, Propriétés, Recherche et Préférences. Cliquer une fois sur une réplique dans la bande pour modifier directement
+son texte ; son menu contextuel permet de modifier le rôle et la piste. Glisser un signe dans la
 rythmo pour le déplacer. Les raccourcis de navigation ne capturent pas les
 espaces ni les flèches pendant la saisie de texte.
 
@@ -64,13 +65,14 @@ Depuis Windows, pousser les sources sur GitHub déclenche le workflow
 `Native macOS ARM64`. Il compile et teste sur macOS 15, puis ouvre le même binaire
 sur macOS 26. Les tests de lancement exigent que l'éditeur apparaisse, avec et
 sans DetX. Des aperçus PNG sont proposés si la capture d'écran du runner est autorisée.
-Télécharger l'artefact `CappellaMac-arm64` après réussite des deux jobs.
+Télécharger l'artefact `Cappella-MacOS-arm64` après réussite des deux jobs.
 
 ## Validation
 
-La version 0.1.1 a été confirmée comme fonctionnant par l'utilisateur.
-Les nouvelles modifications 0.2.0 doivent encore passer les tests et la comparaison
-visuelle sur Mac. Les tests Swift ne sont pas exécutables sur le poste Windows actuel.
+Les tests du moteur partagé s’exécutent sur Mac et Windows. Les tests AppKit,
+AVFoundation et Finder restent exécutés sur les runners Mac. Le portage WinUI
+possède ses tests de documents et ses tests de lancement avec et sans DetX.
+La parité fonctionnelle Windows reste à compléter : voir [WINDOWS.md](docs/WINDOWS.md).
 
 Pour tester un vrai fichier local sur Mac sans le publier :
 
@@ -84,3 +86,13 @@ pour les signes, les positions mémorisées et les attributs de voix off.
 `assets/` contient l'installation Windows et reste ignoré par Git. La mire est
 copiée dans `packaging/Resources/` pour être incluse dans l'application native.
 Le logiciel natif ne charge ni l'exécutable Windows ni ses DLL.
+
+## Windows et releases
+
+Le portage Windows utilise [Swift-WinRT](https://github.com/thebrowsercompany/swift-winrt)
+pour appeler WinUI 3 depuis Swift. Les projections sont régénérées localement
+avec `./scripts/prepare-windows.ps1`, puis `./scripts/build-windows.ps1 -SkipPrepare`
+produit l’archive Windows. Instructions et limites : [WINDOWS.md](docs/WINDOWS.md).
+
+Pour distribuer les deux plateformes : [créer une release GitHub](docs/RELEASES.md).
+Le workflow déclenché par un tag `v*` prépare un brouillon avec les archives Mac et Windows.

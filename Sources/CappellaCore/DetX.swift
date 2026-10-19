@@ -72,6 +72,10 @@ public enum DetX {
                     throw ProjectError.invalid("Élément de phrase non pris en charge : \(child.name ?? "?"). Le fichier n'est pas modifié.")
                 }
             }
+            // Original Cappella can leave an unfinished, empty line with a
+            // single lipsync sign. It is not a timed dialogue yet; keep it in
+            // originalDetX rather than inventing an end time or rejecting the file.
+            if isUnfinishedLine(element) { continue }
             guard signs.count >= 2, let first = signs.first, let last = signs.last,
                   first.textOffset == 0, last.textOffset == text.unicodeScalars.count else { throw ProjectError.invalid("La phrase doit être délimitée par deux signes.") }
             var cue = Cue(roleID: role.id, start: first.frame, end: last.frame, text: text)
@@ -145,7 +149,12 @@ public enum DetX {
         let mapped = project.cues.compactMap(\.sourceIndex)
         guard Set(mapped).count == mapped.count, mapped.allSatisfy({ originals.indices.contains($0) }) else { throw ProjectError.invalid("Correspondance des phrases source invalide.") }
         for (index, line) in originals.enumerated() {
-            guard let cue = project.cues.first(where: { $0.sourceIndex == index }) else { line.detach(); continue }
+            guard let cue = project.cues.first(where: { $0.sourceIndex == index }) else {
+                // Preserve incomplete source entries excluded from the editable
+                // cue model. Real deleted dialogue lines must still be removed.
+                if !isUnfinishedLine(line) { line.detach() }
+                continue
+            }
             try update(line, cue: cue, fps: project.framesPerSecond, roleIDs: roleIDs)
         }
         for cue in project.cues where cue.sourceIndex == nil {
@@ -189,6 +198,14 @@ public enum DetX {
         for node in events { node.detach() }
         for event in ordered { body.addChild(event.node) }
         return document.xmlData(options: [.nodePrettyPrint])
+    }
+
+    private static func isUnfinishedLine(_ line: XMLElement) -> Bool {
+        let children = (line.children ?? []).compactMap { $0 as? XMLElement }
+        guard children.filter({ $0.name == "lipsync" }).count == 1 else { return false }
+        return children.allSatisfy { child in
+            child.name == "lipsync" || (child.name == "text" && (child.stringValue ?? "").isEmpty)
+        }
     }
 
     private static func update(_ line: XMLElement, cue: Cue, fps: Int, roleIDs: [UUID: String]) throws {

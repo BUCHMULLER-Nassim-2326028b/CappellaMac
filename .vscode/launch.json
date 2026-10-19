@@ -19,6 +19,26 @@
             "target": "CappellaMac",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release CappellaMac"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:CappellaMac}",
+            "name": "Debug CappellaWindows",
+            "target": "CappellaWindows",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug CappellaWindows"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:CappellaMac}",
+            "name": "Release CappellaWindows",
+            "target": "CappellaWindows",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release CappellaWindows"
         }
     ]
 }

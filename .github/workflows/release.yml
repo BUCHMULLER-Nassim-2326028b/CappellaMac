@@ -1,0 +1,34 @@
+name: Prepare GitHub release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  macos:
+    uses: ./.github/workflows/macos.yml
+  windows:
+    uses: ./.github/workflows/windows.yml
+  release:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Cappella-MacOS-arm64
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: Cappella-Windows-x64
+          path: release
+      - name: Create draft with tested archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd release
+          sha256sum *.zip > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Cappella $RELEASE_TAG" ./*.zip SHA256SUMS.txt

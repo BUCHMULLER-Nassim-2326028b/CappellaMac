@@ -1,7 +1,9 @@
 name: Native macOS ARM64
 on:
   workflow_dispatch:
+  workflow_call:
   push:
+    branches: ['**']
     paths: ['Sources/**', 'Tests/**', 'Package.swift', 'packaging/**', 'scripts/**', '.github/workflows/macos.yml']
   pull_request:
     paths: ['Sources/**', 'Tests/**', 'Package.swift', 'packaging/**', 'scripts/**', '.github/workflows/macos.yml']
