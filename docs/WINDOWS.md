@@ -6,8 +6,11 @@ est partagé avec le Mac ; SwiftUI et AppKit restent propres à macOS.
 ## Lancer l'archive
 
 Windows x64 avec Windows App Runtime 1.7. Extraire tout le ZIP et conserver les DLL,
-Resources et Licenses auprès de Cappella.exe. Le script Installer-runtime.ps1
-fourni installe le runtime WinUI. Les DLL Swift sont incluses dans l'archive.
+Resources et Licenses auprès de Cappella.exe. Les DLL Swift sont incluses dans
+l'archive ; Windows App Runtime 1.7 x64 doit être installé séparément
+([téléchargements Microsoft](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads-archive)).
+Le script windows/Installer-runtime.ps1 reste dans le dépôt pour le développement
+et la CI. Ce script et la documentation ne sont pas ajoutés au ZIP distribué.
 
 ## Compiler
 

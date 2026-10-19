@@ -54,8 +54,13 @@ try {
     }
     & "$PSScriptRoot/build-windows-icons.ps1" -OutputDirectory "$app/Resources"
     & "$PSScriptRoot/embed-windows-resources.ps1" -Executable "$app/Cappella.exe" -Icon "$app/Resources/AppIcon.ico"
-    Copy-Item -LiteralPath "$repo/windows/Installer-runtime.ps1" -Destination $app
-    Copy-Item -LiteralPath "$repo/docs/WINDOWS.md" -Destination "$app/LIRE-MOI.md"
+    # Remove helpers left by earlier builds before creating the distribution archive.
+    foreach ($helper in @('Installer-runtime.ps1', 'LIRE-MOI.md')) {
+        $helperPath = Join-Path $app $helper
+        if (Test-Path -LiteralPath $helperPath -PathType Leaf) {
+            Remove-Item -LiteralPath $helperPath
+        }
+    }
     Compress-Archive -LiteralPath $app -DestinationPath "$repo/dist/Cappella-Windows-x64.zip" -Force
     Write-Host "Application : $app/Cappella.exe"
     Write-Host "Archive : $repo/dist/Cappella-Windows-x64.zip"

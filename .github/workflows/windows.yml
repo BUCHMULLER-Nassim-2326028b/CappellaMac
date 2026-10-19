@@ -31,7 +31,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-windows.ps1 -SkipPrepare
       - name: Install WinUI runtime
-        shell: pwsh
+        shell: powershell
         run: ./windows/Installer-runtime.ps1
       - name: Launch empty editor and open DetX
         shell: pwsh

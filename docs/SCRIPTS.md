@@ -14,7 +14,7 @@ de compilation restent scripts/build-macos.sh et scripts/build-windows.ps1.
 | lib/WindowsBuild.ps1 | Fonction commune de synchronisation du support WinUI/WinAppSDK, appelée par les deux scripts Windows |
 | build-windows-icons.ps1 | build-windows.ps1 : génération des icônes Windows |
 | embed-windows-resources.ps1 | build-windows.ps1 : ressources de l'exécutable |
-| windows/Installer-runtime.ps1 | Installation du runtime WinUI par l'utilisateur ou le workflow Windows |
+| windows/Installer-runtime.ps1 | Installation du runtime WinUI pour le développement et la CI (absent du ZIP) |
 
 Les projections .windows sont générées à partir de windows/projections.json.
 Leur empreinte permet à -SkipPrepare de conserver un cache à jour.

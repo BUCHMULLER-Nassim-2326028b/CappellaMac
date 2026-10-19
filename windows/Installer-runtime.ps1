@@ -1,4 +1,10 @@
 ﻿$ErrorActionPreference = 'Stop'
+# Appx requires Windows PowerShell 5.1 rather than PowerShell 7.
+if ($PSVersionTable.PSEdition -eq 'Core') {
+    $windowsPowerShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    & $windowsPowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $PSCommandPath
+    exit $LASTEXITCODE
+}
 # Per-user packages, no forced upgrade or shutdown of other applications.
 $required = Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.1.7' | Where-Object Architecture -EQ 'X64'
 if ($required) { Write-Host 'Windows App Runtime 1.7 x64 est déjà installé.'; exit 0 }
