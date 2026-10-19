@@ -55,9 +55,11 @@ import WinSDK
 /// ```
 open class SwiftApplication: Application, IXamlMetadataProvider {
     public typealias RunLoop = (DispatcherQueue) throws -> Int32
+    private static weak var desktopApplication: SwiftApplication?
 
     public required override init() {
         super.init()
+        SwiftApplication.desktopApplication = self
     }
 
     @_spi(WinRTImplements)
@@ -76,6 +78,9 @@ open class SwiftApplication: Application, IXamlMetadataProvider {
     /// The first window for your application should be created and activated here.
     open func onLaunched(_ args: LaunchActivatedEventArgs) {
     }
+
+    /// Desktop input is offered to the app before WinUI menu preprocessing.
+    open func preTranslateMessage(_ message: UnsafePointer<MSG>) -> Bool { false }
 
     private typealias pfnContentPreTranslateMessage = @convention(c) (UnsafePointer<MSG>?) -> Bool
     private static let contentPreTranslateMessage: pfnContentPreTranslateMessage = {
@@ -97,6 +102,7 @@ open class SwiftApplication: Application, IXamlMetadataProvider {
                     return Int32(msg.wParam)
                 }
 
+                if SwiftApplication.desktopApplication?.preTranslateMessage(&msg) == true { continue }
                 if (!contentPreTranslateMessage(&msg)) {
                     TranslateMessage(&msg)
                     DispatchMessageW(&msg)

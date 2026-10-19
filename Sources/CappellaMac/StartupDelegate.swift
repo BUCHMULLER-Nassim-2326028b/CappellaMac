@@ -31,8 +31,7 @@ final class StartupDelegate: NSObject, NSApplicationDelegate {
         return false
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // A temporarily absent editor during launch/reopening is not a quit.
-        false
+        true
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         ProjectSession.shared.prepareToTerminate() ? .terminateNow : .terminateCancel

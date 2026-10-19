@@ -23,6 +23,9 @@ Résultat : `dist/Cappella-Windows-x64.zip`. Pour les releases GitHub : [RELEASE
 
 ## Périmètre actuel
 
-Instance unique et redirection des fichiers ouverts depuis l’Explorateur, ouverture/enregistrement DetX et projets JSON, confirmation des changements non enregistrés, quatre pistes de rythmo, édition directe au clic simple, signes/boucles/plans, navigation clavier, menus français, rôles et portraits, presse-papiers de phrases, export texte/CSV, thèmes clair/sombre et sauvegardes automatiques désactivables. Les sauvegardes de récupération sont séparées du fichier source, dans le dossier de données utilisateur `Cappella/Autosaves`.
+Instances indépendantes, ouverture depuis l’Explorateur, ouverture/enregistrement DetX et projets JSON, confirmation des changements non enregistrés, quatre pistes de rythmo, édition directe au clic simple, signes/boucles/plans, navigation clavier, menus français, rôles et portraits, presse-papiers de phrases, export texte/CSV, thèmes clair/sombre et sauvegardes automatiques désactivables. Les sauvegardes de récupération sont séparées du fichier source, dans le dossier de données utilisateur `Cappella/Autosaves`.
 
 Cette première version Windows doit encore passer les essais métier sur les médias réels. Le lecteur actuel sélectionne des flux audio séparés pour VO/VI ; le routage des canaux d’un flux PCM à quatre canaux et la combinaison de quatre flux mono ne sont pas encore équivalents au moteur Mac. La fenêtre de projection affiche pour l’instant la vidéo. L’enregistrement audio, la détection automatique des plans, certaines préférences vidéo restent à porter. Ne pas utiliser cette version comme remplacement validé du Mac en séance.
+
+
+Chaque lancement ouvre une instance indépendante. Fichier > Ouvrir remplace le projet de la fenêtre actuelle avec la demande d'enregistrement habituelle. Fermer la fenêtre principale ferme aussi l'écran de contrôle et termine cette instance. Sur Mac, plusieurs processus indépendants restent possibles ; fermer la dernière fenêtre quitte l'application.

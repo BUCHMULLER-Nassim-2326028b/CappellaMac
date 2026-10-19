@@ -248,9 +248,14 @@ struct EditorView: View {
         case .roles: RolesPanel(project: $project)
         case .importRoles: RoleImportPanel(project: $project, candidates: rolesToImport)
         case .properties: PropertiesPanel(project: $project, applyFiles: { old in
-            if old.videoPath != project.videoPath, let path = project.videoPath {
-                transport.open(URL(fileURLWithPath: path), sound: validSoundURL)
-            } else if old.audioPath != project.audioPath, let sound = validSoundURL { transport.openSound(sound) }
+            if old.videoPath != project.videoPath || old.audioPath != project.audioPath {
+                let position = transport.seconds
+                transport.close()
+                transport.seek(seconds: position)
+                if let path = project.videoPath, FileManager.default.fileExists(atPath: path) {
+                    transport.open(URL(fileURLWithPath: path), sound: validSoundURL)
+                } else if let sound = validSoundURL { transport.openSound(sound) }
+            }
         })
         case .chooseRole:
             VStack(alignment: .leading, spacing: 12) {

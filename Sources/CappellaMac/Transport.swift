@@ -58,6 +58,9 @@ final class Transport: ObservableObject {
         loadTask?.cancel(); loadTask = nil; setRate(0)
         resetMediaSeeks()
         player.replaceCurrentItem(with: nil); itemObservation = nil; preparedAudio = nil
+        videoURL = nil; soundURL = nil; routingTracks.removeAll(); channelCount = 0
+        seconds = 0; duration = 0; mediaName = nil; hasVI = false; usingVI = false; preparingAudio = false
+        mediaID = UUID(); error = nil
         scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }; scopedURLs.removeAll()
     }
 

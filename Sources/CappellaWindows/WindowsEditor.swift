@@ -16,7 +16,21 @@ final class WindowsEditor {
     let customTitleBar = Grid()
     let titleText = label("Cappella", size: 12)
     let titleLogo = Image()
-    let timelineFocus = Button()
+    var resizeRegions: [WindowsResizeRegion] = []
+    var resizeRegion: WindowsResizeRegion?
+    var resizeOrigin = 0.0
+    var resizeValue = 0.0
+    var resizeDPI = 1.0
+    var resizeCoordinate: Double?
+    let resizeTimer = DispatcherTimer()
+    var handledDesktopKeys = Set<UInt>()
+    var isClosed = false
+    var onClosed: (() -> Void)?
+    var closeApproved = false
+    var closePromptActive = false
+    let editorAdornments = Canvas()
+    let caretTimer = DispatcherTimer()
+    var caretVisible = true
     var isResizing = false
     let script = StackPanel()
     var scriptOrder: [UUID] = []
@@ -66,9 +80,11 @@ final class WindowsEditor {
     var textEditorCue: UUID?
     var changingText = false
     var dialogShowing = false
+    var activeDialog: ContentDialog?
     var lastTick = Date()
     var lastRenderUptime = ProcessInfo.processInfo.systemUptime
     let editorMeasurement = TextBlock()
+    var textSelectionAnchor: (UUID, Int, Double)?
     var dragSign: (UUID, UUID, Int, Double)?
     var dragMoved = false
     var pointerWasLeft = false
@@ -88,8 +104,10 @@ final class WindowsEditor {
     init() {
         window.title = "Cappella"
         try? window.appWindow.resize(SizeInt32(width: 1420, height: 800))
+        media.videoOffset = self.document.preferences.videoOffsetMilliseconds / 1000
         buildLayout()
         installWindowChrome()
+        root.sizeChanged.addHandler { [weak self] _, _ in self?.fitBandHeight() }
         self.document.changed = { [weak self] in self?.refresh() }
         media.failed = { [weak self] message in Task { @MainActor in await self?.showError(message) } }
         root.previewKeyDown.addHandler { [weak self] _, args in self?.keyDown(args) }
@@ -98,20 +116,33 @@ final class WindowsEditor {
         bandContainer.pointerMoved.addHandler { [weak self] _, args in self?.pointerMoved(args) }
         bandContainer.pointerReleased.addHandler { [weak self] _, args in self?.pointerReleased(args) }
         bandContainer.rightTapped.addHandler { [weak self] _, args in self?.contextMenu(args) }
-        vo.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = false; media.applyAudio(); refreshClock(); restoreTimelineFocus() }
-        vi.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = true; media.applyAudio(); refreshClock(); restoreTimelineFocus() }
+        vo.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = false; media.applyAudio(); refreshClock() }
+        vi.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = true; media.applyAudio(); refreshClock() }
         window.appWindow.closing.addHandler { [weak self] _, args in
-            guard let self else { return }
+            guard let self, !closeApproved else { return }
             if self.document.dirty {
                 args?.cancel = true
-                Task { @MainActor in if await self.mayReplace() { self.document.replace(with: Project(), url: nil); try? self.window.close() } }
-            } else { media.stop() }
+                guard !closePromptActive else { return }
+                closePromptActive = true
+                Task { @MainActor in
+                    defer { self.closePromptActive = false }
+                    if await self.mayReplace() { self.closeApproved = true; try? self.window.close() }
+                }
+            }
+        }
+        window.activated.addHandler { [weak self] _, args in
+            if args?.windowActivationState == .deactivated { self?.endResize() }
         }
         media.playbackChanged = { [weak self] in self?.updatePlaybackRendering() }
-        window.closed.addHandler { [weak self] _, _ in
-            guard let self else { return }
-            media.stop(); try? timer.stop()
-            renderingSubscription?.dispose(); renderingSubscription = nil
+        window.closed.addHandler { [weak self] _, _ in self?.shutdown() }
+        // Only runs during a divider drag, including when WinUI consumes mouse
+        // movement before the desktop pre-translation hook sees it.
+        resizeTimer.interval = TimeSpan(duration: 80_000)
+        resizeTimer.tick.addHandler { [weak self] _, _ in self?.pollResize() }
+        caretTimer.interval = TimeSpan(duration: 5_000_000)
+        caretTimer.tick.addHandler { [weak self] _, _ in
+            guard let self, self.document.editing else { return }
+            caretVisible.toggle(); renderEditorAdornments()
         }
         timer.interval = TimeSpan(duration: 10_000_000)
         timer.tick.addHandler { [weak self] _, _ in self?.pollAutosave() }
@@ -132,15 +163,14 @@ final class WindowsEditor {
         let dividerColumn = ColumnDefinition(); dividerColumn.width = GridLength(value: 6, gridUnitType: .pixel)
         let rightColumn = ColumnDefinition(); rightColumn.width = GridLength(value: 1 - initialFraction, gridUnitType: .star)
         main.columnDefinitions.append(leftColumn); main.columnDefinitions.append(dividerColumn); main.columnDefinitions.append(rightColumn)
-        main.tapped.addHandler { [weak self] _, _ in self?.restoreTimelineFocus() }
-        let verticalDivider = makeResizeHandle(vertical: true, position: { leftColumn.actualWidth }, change: { [weak main] value in
-            guard let main else { return }
+        // Retain these Swift projections in the drag callbacks. XAML retaining
+        // the native Grid does not retain its original Swift wrapper.
+        let verticalDivider = makeResizeHandle(vertical: true, position: { leftColumn.actualWidth }, change: { [main] value in
             let available = max(1, main.actualWidth - 6), minimum = min(240, available * 0.4)
             let fraction = min(available - minimum, max(minimum, value)) / available
             leftColumn.width = GridLength(value: fraction, gridUnitType: .star)
             rightColumn.width = GridLength(value: 1 - fraction, gridUnitType: .star)
-        }, finish: { [weak main] in
-            guard let main else { return }
+        }, finish: { [main] in
             UserDefaults.standard.set(leftColumn.actualWidth / max(1, main.actualWidth - 6), forKey: "layout.windows.leftFraction")
         })
         try? Grid.setColumn(verticalDivider, 1); main.children.append(verticalDivider)
@@ -150,11 +180,15 @@ final class WindowsEditor {
         let clockRow = RowDefinition(); clockRow.height = GridLength(value: savedClockHeight.isFinite && savedClockHeight >= 76 ? savedClockHeight : 92, gridUnitType: .pixel)
         let clockDividerRow = RowDefinition(); clockDividerRow.height = GridLength(value: 6, gridUnitType: .pixel)
         left.rowDefinitions.append(scriptRow); left.rowDefinitions.append(clockDividerRow); left.rowDefinitions.append(clockRow)
-        let clockDivider = makeResizeHandle(vertical: false, position: { -clockRow.actualHeight }, change: { [weak left] value in
-            guard let left else { return }
+        let clockDivider = makeResizeHandle(vertical: false, position: { -clockRow.actualHeight }, change: { [left] value in
             clockRow.height = GridLength(value: min(max(76, left.actualHeight - 100), max(76, -value)), gridUnitType: .pixel)
         }, finish: { UserDefaults.standard.set(clockRow.actualHeight, forKey: "layout.windows.clockHeight") })
         try? Grid.setRow(clockDivider, 1); left.children.append(clockDivider)
+        main.sizeChanged.addHandler { [weak left] _, _ in
+            guard let left, left.actualHeight > 0 else { return }
+            let maximum = max(76, left.actualHeight - 100)
+            if clockRow.actualHeight > maximum { clockRow.height = GridLength(value: maximum, gridUnitType: .pixel) }
+        }
         let scroll = ScrollViewer(); scroll.content = script
         script.spacing = 15; script.padding = Thickness(left: 8, top: 16, right: 8, bottom: 16)
         left.children.append(scroll)
@@ -192,6 +226,7 @@ final class WindowsEditor {
         try? Grid.setRow(bandDivider, 2); root.children.append(bandDivider)
     }
     func refresh() {
+        guard !isClosed else { return }
         let title = self.document.title
         if title != lastWindowTitle { window.title = title; titleText.text = title; lastWindowTitle = title }
         if appliedDark != dark {
@@ -202,13 +237,11 @@ final class WindowsEditor {
             if FileManager.default.fileExists(atPath: icon) { try? window.appWindow.setIcon(icon) }
             appliedDark = dark
         }
-        let height = max(120, self.document.preferences.bandHeight)
-        if height != appliedBandHeight, let row = root.rowDefinitions.getAt(3) {
-            row.height = GridLength(value: height, gridUnitType: .pixel)
-            appliedBandHeight = height
-        }
+        fitBandHeight()
+
         let visibility: WinUI.Visibility = media.hasVideo ? .visible : .collapsed
         if videoView.visibility != visibility { videoView.visibility = visibility }
+        previewImage?.visibility = media.hasVideo ? .collapsed : .visible
         refreshScript(); refreshClock(); renderBand(); updateTextEditor()
     }
     func refreshScript() {
@@ -266,6 +299,7 @@ final class WindowsEditor {
         }
     }
     func updatePlaybackRendering() {
+        guard !isClosed else { return }
         lastTick = Date()
         lastRenderUptime = ProcessInfo.processInfo.systemUptime
         timelineClock.reset()
@@ -277,6 +311,7 @@ final class WindowsEditor {
         }
     }
     func tick() {
+        guard !isClosed else { return }
         let uptime = ProcessInfo.processInfo.systemUptime
         let elapsed = max(0, uptime - lastRenderUptime); lastRenderUptime = uptime
         if media.rate != 0 && !self.document.editing && !dialogShowing {
@@ -296,8 +331,9 @@ final class WindowsEditor {
         } else { renderBand(reuse: true) }
     }
     func pollAutosave() {
+        guard !isClosed else { return }
         let now = Date()
-        if !dialogShowing && now.timeIntervalSince(lastAutosavePoll) >= 1 {
+        if !dialogShowing && !isResizing && now.timeIntervalSince(lastAutosavePoll) >= 1 {
             lastAutosavePoll = now
             do { try self.document.autoSave(at: now) } catch { status.text = error.localizedDescription }
         }
@@ -314,12 +350,26 @@ final class WindowsEditor {
     func perform(_ operation: () throws -> Void) {
         do { try operation() } catch { Task { @MainActor in await self.showError(error.localizedDescription) } }
     }
-    func dialog(_ title: String, content: UIElement, primary: String = "OK", secondary: String = "", close: String = "") async -> ContentDialogResult {
-        guard !dialogShowing else { return .none }
+    func dialog(_ title: String, content: UIElement, primary: String = "OK", secondary: String = "", close: String = "", validatePrimary: (() -> Bool)? = nil, secondaryAction: (() -> Void)? = nil, contentWidth: Double? = nil) async -> ContentDialogResult {
+        guard !dialogShowing, !isClosed else { return .none }
         dialogShowing = true; defer { dialogShowing = false }
         let dialog = ContentDialog(); dialog.title = title; dialog.content = content
+        activeDialog = dialog
+        defer { if activeDialog === dialog { activeDialog = nil } }
+        dialog.requestedTheme = dark ? .dark : .light
+        if let contentWidth {
+            let width = contentWidth + 48
+            _ = dialog.resources.insert("ContentDialogMaxWidth", width)
+            dialog.maxWidth = width
+        }
         dialog.xamlRoot = root.xamlRoot; dialog.primaryButtonText = primary
         dialog.secondaryButtonText = secondary; dialog.closeButtonText = close
+        if let validatePrimary {
+            dialog.primaryButtonClick.addHandler { _, args in args?.cancel = !validatePrimary() }
+        }
+        if let secondaryAction {
+            dialog.secondaryButtonClick.addHandler { _, args in args?.cancel = true; secondaryAction() }
+        }
         do { return try await dialog.showAsync().get() } catch { status.text = error.localizedDescription; return .none }
     }
     func mayReplace() async -> Bool {
@@ -339,21 +389,26 @@ final class WindowsEditor {
             ])
         }
     }
-    func pickFile(_ extensions: [String]) async -> URL? {
+    func pickFile(_ extensions: [String], onError: ((String) -> Void)? = nil) async -> URL? {
         media.stop()
         do {
             let picker = FileOpenPicker(); for ext in extensions { picker.fileTypeFilter.append(ext) }; try attachPicker(picker)
             guard let file = try await picker.pickSingleFileAsync().get() else { return nil }
             return URL(fileURLWithPath: file.path)
-        } catch { await showError(error.localizedDescription); return nil }
+        } catch {
+            if let onError { onError(error.localizedDescription) }
+            else { await showError(error.localizedDescription) }
+            return nil
+        }
     }
     func open(_ url: URL, recovery: Bool = false) async {
         if !recovery && self.document.url?.standardizedFileURL == url.standardizedFileURL { try? window.activate(); return }
         do {
             let project = try self.document.read(url)
             guard await mayReplace() else { return }
-            media.stop(); self.document.replace(with: project, url: recovery ? nil : url)
-            try media.open(videoPath: project.videoPath, audioPath: project.audioPath)
+            unloadProjectMedia()
+            self.document.replace(with: project, url: recovery ? nil : url)
+            try loadProjectMedia()
             media.seek(Double(self.document.frame - project.mediaStartFrame) / Double(fps))
             refresh(); try window.activate()
         } catch { await showError(error.localizedDescription) }

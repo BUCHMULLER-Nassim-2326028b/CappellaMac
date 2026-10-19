@@ -48,7 +48,7 @@ final class WindowsDocument {
         }
         return low > 0 ? sortedLoops[low - 1] : nil
     }
-    var title: String { (url?.lastPathComponent ?? project.title) + (dirty ? " *" : "") + " — Cappella" }
+    var title: String { (url?.lastPathComponent ?? project.title) + (dirty ? " *" : "") + " - Cappella" }
     var canUndo: Bool { !undoStates.isEmpty }
     var canRedo: Bool { !redoStates.isEmpty }
 

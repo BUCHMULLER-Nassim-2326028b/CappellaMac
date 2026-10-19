@@ -24,10 +24,15 @@ struct WindowsRulerState: Equatable {
 }
 
 extension WindowsEditor {
+    var bandDisplayFrame: Double {
+        if let playbackFrame, Int(playbackFrame.rounded()) == self.document.frame { return playbackFrame }
+        return Double(self.document.frame)
+    }
     func renderBand(reuse: Bool = false) {
+        guard !isClosed else { return }
         let width = bandContainer.actualWidth, height = bandContainer.actualHeight
         guard width > 0, height > 0 else { return }
-        let position = reuse ? (playbackFrame ?? Double(self.document.frame)) : Double(self.document.frame)
+        let position = bandDisplayFrame
         let state = WindowsBandState(revision: self.document.revision, track: self.document.track,
             selection: self.document.selection, sign: self.document.signSelection,
             editing: self.document.editing, preferences: self.document.preferences)
@@ -128,7 +133,7 @@ extension WindowsEditor {
             place(badge, on: view, x: -Double(name.desiredSize.width) - 8, y: y,
                 width: Double(name.desiredSize.width) + 6, height: 15)
         }
-        if !self.document.editing || self.document.selection != cue.id {
+        do { // Draw the same stretched glyphs during reading and editing.
             let color = readingColor(cue.roleID), font = FontFamily(fontFamily)
             for segment in Timeline.segments(cue) {
                 let textWidth = Double(segment.end - segment.start) * scale
@@ -206,7 +211,7 @@ extension WindowsEditor {
     func hit(_ point: Point) -> (Cue?, SyncSign?, Int, Int) {
         let lane = max(1, bandContainer.actualHeight / 4)
         let track = min(3, max(0, Int(Double(point.y) / lane)))
-        let target = self.document.frame + Int(((Double(point.x) - bandContainer.actualWidth / 2) / scale).rounded())
+        let target = Int((bandDisplayFrame + (Double(point.x) - bandContainer.actualWidth / 2) / scale).rounded())
         let cue = self.document.project.cues.last { $0.track == track && $0.start <= target && $0.end >= target }
         let sign = cue?.anchors.first { abs(Double($0.frame - target) * scale) < 7 && Double(point.y) >= Double(track + 1) * lane - 23 }
         return (cue, sign, track, target)
@@ -216,9 +221,27 @@ extension WindowsEditor {
         let (cue, sign, _, _) = hit(point.position)
         dragMoved = false; pointerWasLeft = true
         if let cue, let sign { dragSign = (cue.id, sign.id, sign.frame, Double(point.position.x)) }
+        else if let cue, self.document.editing, self.document.selection == cue.id, let input = textEditor {
+            let offset = timelineOffset(cue, atX: Double(point.position.x))
+            textSelectionAnchor = (cue.id, offset, Double(point.position.x))
+            try? input.select(Int32(utf16Offset(in: cue.text, scalar: offset)), 0)
+            _ = try? input.focus(.programmatic)
+            _ = try? bandContainer.capturePointer(args.pointer)
+            args.handled = true
+        }
     }
     func pointerMoved(_ args: PointerRoutedEventArgs?) {
         guard let args, let point = try? args.getCurrentPoint(bandContainer) else { return }
+        if let (cueID, anchor, startX) = textSelectionAnchor, point.properties.isLeftButtonPressed,
+           let cue = self.document.selectedCue, cue.id == cueID, let input = textEditor {
+            guard abs(Double(point.position.x) - startX) > 2 else { return }
+            dragMoved = true
+            let offset = timelineOffset(cue, atX: Double(point.position.x))
+            let a = utf16Offset(in: cue.text, scalar: min(anchor, offset))
+            let b = utf16Offset(in: cue.text, scalar: max(anchor, offset))
+            try? input.select(Int32(a), Int32(b - a)); args.handled = true
+            return
+        }
         if let (cueID, signID, initialFrame, x) = dragSign, point.properties.isLeftButtonPressed {
             let delta = Double(point.position.x) - x
             if abs(delta) > 3 {
@@ -228,53 +251,18 @@ extension WindowsEditor {
         }
     }
     func pointerReleased(_ args: PointerRoutedEventArgs?) {
-        defer { dragSign = nil; dragMoved = false; pointerWasLeft = false }
+        defer {
+            if textSelectionAnchor != nil { try? bandContainer.releasePointerCaptures() }
+            textSelectionAnchor = nil; dragSign = nil; dragMoved = false; pointerWasLeft = false
+        }
         guard pointerWasLeft, !dragMoved, let args, let point = try? args.getCurrentPoint(bandContainer), !point.properties.isRightButtonPressed else { return }
         let (cue, _, track, target) = hit(point.position)
         media.stop()
-        if let cue { self.document.beginEditing(cue, at: target); updateTextEditor(focus: true) }
+        if let cue {
+            self.document.beginEditing(cue, at: target)
+            self.document.caret = timelineOffset(cue, atX: Double(point.position.x))
+            updateTextEditor(focus: true)
+        }
         else { self.document.selectTrack(track); updateTextEditor() }
-    }
-    func updateTextEditor(focus: Bool = false) {
-        guard self.document.editing, let cue = self.document.selectedCue else {
-            if textEditor != nil { editorLayer.children.clear(); textEditor = nil; textEditorCue = nil }
-            return
-        }
-        if textEditorCue != cue.id {
-            editorLayer.children.clear()
-            let input = TextBox(); input.fontFamily = FontFamily(fontFamily); input.fontSize = self.document.preferences.fontSize
-            input.fontStyle = .italic
-            input.background = ink(0); input.foreground = ink(0xFFFFFF); input.textWrapping = .noWrap
-            input.borderThickness = Thickness(); input.padding = Thickness(left: 2, top: 0, right: 2, bottom: 0)
-            input.acceptsReturn = false; input.text = cue.text
-            input.textChanged.addHandler { [weak self, weak input] _, _ in
-                guard let self, let input, !changingText, textEditor === input,
-                      textEditorCue == self.document.selection, self.document.editing else { return }
-                let count = min(Int(input.selectionStart), input.text.utf16.count)
-                let index = String.Index(utf16Offset: count, in: input.text)
-                perform { try self.document.setText(input.text, caret: input.text[..<index].unicodeScalars.count) }
-            }
-            input.loaded.addHandler { [weak self, weak input] _, _ in
-                guard let self, let input, textEditor === input, self.document.editing, !dialogShowing else { return }
-                _ = try? input.focus(.programmatic)
-            }
-            textEditor = input; textEditorCue = cue.id; editorLayer.children.append(input)
-            let scalars = cue.text.unicodeScalars
-            let index = scalars.index(scalars.startIndex, offsetBy: min(self.document.caret, scalars.count))
-            input.selectionStart = Int32(cue.text[..<index].utf16.count)
-        }
-        guard let input = textEditor else { return }
-        changingText = true
-        if input.text != cue.text { input.text = cue.text }
-        let measured = editorMeasurement
-        measured.text = cue.text + " "; measured.fontSize = self.document.preferences.fontSize
-        measured.fontFamily = FontFamily(fontFamily); measured.fontStyle = .italic
-        try? measured.measure(uiSize(width: 100_000, height: bandContainer.actualHeight / 4))
-        let left = max(0, bandContainer.actualWidth / 2 + Double(cue.start - self.document.frame) * scale)
-        try? Canvas.setLeft(input, left); try? Canvas.setTop(input, Double(cue.track) * bandContainer.actualHeight / 4)
-        input.width = min(max(12, Double(measured.desiredSize.width) + 12), max(12, bandContainer.actualWidth - left))
-        input.height = bandContainer.actualHeight / 4
-        changingText = false
-        if focus { _ = try? input.focus(.programmatic) }
     }
 }

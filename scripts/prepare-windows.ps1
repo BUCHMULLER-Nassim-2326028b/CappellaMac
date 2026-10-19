@@ -63,4 +63,7 @@ static PCWSTR WINDOWSAPPSDK_RELEASE_VERSION_TAG_SWIFT = WINDOWSAPPSDK_RELEASE_VE
 '@)
 [IO.File]::WriteAllText((Join-Path $headers 'module.modulemap'), 'module CWinAppSDK { header "bootstrap.h" export * }')
 [IO.File]::WriteAllText((Join-Path $output 'Sources/CWinAppSDK/bootstrap.c'), '#include "include/bootstrap.h"')
+# Stamp only after generation and support installation have succeeded.
+$configurationHash = (Get-FileHash -LiteralPath (Join-Path $repo 'windows/projections.json') -Algorithm SHA256).Hash
+[IO.File]::WriteAllText((Join-Path $CacheRoot 'projections.config.sha256'), $configurationHash, [Text.UTF8Encoding]::new($false))
 Write-Host "Projections Swift-WinRT prêtes : $output"

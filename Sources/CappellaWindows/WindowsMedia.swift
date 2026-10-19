@@ -8,9 +8,11 @@ final class WindowsMedia {
     let externalAudio = MediaPlayer()
     let viAudio = MediaPlayer()
     private var hasSeparateVI = false
+    private var disposed = false
     private var soundItem: MediaPlaybackItem?
     var usingExternalAudio = false
     var usingVI = false
+    var videoOffset = 0.0
     var volume = 1.0
     var muted = false
     var playbackChanged: (() -> Void)?
@@ -18,10 +20,13 @@ final class WindowsMedia {
     var failed: ((String) -> Void)?
     private(set) var hasMedia = false
     private(set) var hasVideo = false
-    var clock: MediaPlayer { hasVideo ? video : externalAudio }
+    var clock: MediaPlayer { usingExternalAudio || !hasVideo ? externalAudio : video }
     var isAdvancing: Bool { clock.playbackSession.playbackState == .playing }
     var duration: Double { Double(clock.playbackSession.naturalDuration.duration) / 10_000_000 }
-    var position: Double { Double(clock.playbackSession.position.duration) / 10_000_000 }
+    var position: Double {
+        let seconds = Double(clock.playbackSession.position.duration) / 10_000_000
+        return usingExternalAudio || !hasVideo ? seconds : max(0, seconds - videoOffset)
+    }
 
     init() {
         video.autoPlay = false; externalAudio.autoPlay = false; viAudio.autoPlay = false
@@ -44,8 +49,7 @@ final class WindowsMedia {
         }
     }
     func open(videoPath: String?, audioPath: String?) throws {
-        stop(); video.source = nil; externalAudio.source = nil; viAudio.source = nil; hasSeparateVI = false; soundItem = nil; hasMedia = false
-        usingExternalAudio = false; hasVideo = false
+        unload()
         if let path = videoPath, FileManager.default.fileExists(atPath: path) {
             let source = try MediaSource.createFromUri(Uri(URL(fileURLWithPath: path).absoluteString))
             let item = MediaPlaybackItem(source)
@@ -66,12 +70,23 @@ final class WindowsMedia {
         }
         applyAudio()
     }
+    func unload() {
+        guard !disposed else { return }
+        stop()
+        video.source = nil; externalAudio.source = nil; viAudio.source = nil
+        soundItem = nil; hasSeparateVI = false
+        usingExternalAudio = false; usingVI = false; hasVideo = false; hasMedia = false
+    }
     func seek(_ seconds: Double) {
+        guard !disposed else { return }
         let position = TimeSpan(duration: Int64(max(0, seconds) * 10_000_000))
-        if hasVideo { video.playbackSession.position = position }
+        if hasVideo {
+            video.playbackSession.position = TimeSpan(duration: Int64(max(0, seconds + videoOffset) * 10_000_000))
+        }
         if usingExternalAudio { externalAudio.playbackSession.position = position }; if hasSeparateVI { viAudio.playbackSession.position = position }
     }
     func setRate(_ value: Double) throws {
+        guard !disposed else { return }
         rate = value
         if value > 0 {
             if hasVideo { video.playbackSession.playbackRate = value; try video.play() }
@@ -81,10 +96,18 @@ final class WindowsMedia {
         }
     }
     func stop() { rate = 0; try? video.pause(); try? externalAudio.pause(); try? viAudio.pause() }
+    func dispose() {
+        guard !disposed else { return }
+        playbackChanged = nil; failed = nil
+        stop(); disposed = true
+        try? video.close(); try? externalAudio.close(); try? viAudio.close()
+        soundItem = nil
+    }
     func toggleVI() {
         usingVI.toggle(); applyAudio()
     }
     func applyAudio() {
+        guard !disposed else { return }
         video.isMuted = muted || usingExternalAudio
         externalAudio.isMuted = muted || (hasSeparateVI && usingVI)
         viAudio.isMuted = muted || !usingVI

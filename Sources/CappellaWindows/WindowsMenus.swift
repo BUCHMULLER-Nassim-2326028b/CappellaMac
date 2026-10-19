@@ -9,20 +9,20 @@ extension WindowsEditor {
     func menuItem(_ title: String, shortcut: String = "", action: @escaping () -> Void) -> MenuFlyoutItem {
         let item = MenuFlyoutItem(); item.text = title
         if !shortcut.isEmpty { item.keyboardAcceleratorTextOverride = shortcut }
-        item.click.addHandler { [weak self] _, _ in action(); self?.restoreTimelineFocus() }
+        item.click.addHandler { _, _ in action() }
         return item
     }
     func asyncItem(_ title: String, shortcut: String = "", action: @escaping @MainActor () async -> Void) -> MenuFlyoutItem {
         menuItem(title, shortcut: shortcut) { Task { @MainActor in await action() } }
     }
     func makeMenu() -> MenuBar {
-        let bar = MenuBar()
+        let bar = MenuBar(); bar.isTabStop = false
         func menu(_ name: String, _ items: [MenuFlyoutItemBase]) {
-            let menu = MenuBarItem(); menu.title = name
+            let menu = MenuBarItem(); menu.title = name; menu.isTabStop = false
             for item in items { menu.items.append(item) }; bar.items.append(menu)
         }
         menu("Fichier", [
-            asyncItem("Nouveau", shortcut: "Ctrl+N") { [unowned self] in if await mayReplace() { media.stop(); self.document.replace(with: Project(), url: nil) } },
+            asyncItem("Nouveau", shortcut: "Ctrl+N") { [unowned self] in await newProject() },
             asyncItem("Ouvrir…", shortcut: "Ctrl+O") { [unowned self] in if let url = await pickFile([".detx", ".cappellaproject"]) { await open(url) } },
             asyncItem("Ouvrir une sauvegarde…") { [unowned self] in if let url = await pickFile([".cappellaproject"]) { await open(url, recovery: true) } },
             MenuFlyoutSeparator(),
@@ -35,7 +35,7 @@ extension WindowsEditor {
             asyncItem("Exporter le script…") { [unowned self] in await exportText(crossTable: false) },
             asyncItem("Exporter le croisillé…") { [unowned self] in await exportText(crossTable: true) },
             MenuFlyoutSeparator(),
-            asyncItem("Quitter") { [unowned self] in if await mayReplace() { self.document.replace(with: Project(), url: nil); try? window.close() } }
+            menuItem("Quitter") { [unowned self] in try? window.close() }
         ])
         let tracks = MenuFlyoutSubItem(); tracks.text = "Piste"
         tracks.items.append(menuItem("Piste précédente", shortcut: "Ctrl+Haut") { [unowned self] in self.document.selectTrack(self.document.track - 1) })
@@ -173,20 +173,27 @@ extension WindowsEditor {
     }
     func openWeb(_ url: String) { Task { _ = try? await Launcher.launchUriAsync(Uri(url)).get() } }
     func keyDown(_ args: KeyRoutedEventArgs?) {
-        guard let args, !dialogShowing, !hasOpenPopup else { return }
-        let key = Int(args.key.rawValue)
-        let ctrl = GetKeyState(Int32(VK_CONTROL)) < 0, alt = GetKeyState(Int32(VK_MENU)) < 0, shift = GetKeyState(Int32(VK_SHIFT)) < 0
-        if self.document.editing && !ctrl && !alt && ![13, 27].contains(key) { return }
+        guard let args else { return }
+        let ctrl = GetKeyState(Int32(VK_CONTROL)) < 0
+        let alt = GetKeyState(Int32(VK_MENU)) < 0
+        let shift = GetKeyState(Int32(VK_SHIFT)) < 0
+        if handleShortcut(key: Int(args.key.rawValue), ctrl: ctrl, alt: alt, shift: shift, isRepeat: args.keyStatus.wasKeyDown) {
+            args.handled = true; dismissMenus()
+        }
+    }
+    func handleShortcut(key: Int, ctrl: Bool, alt: Bool, shift: Bool, isRepeat: Bool) -> Bool {
+        guard !dialogShowing, !isClosed else { return false }
+        if timelineTextHasFocus && !ctrl && !alt && ![13, 27].contains(key) { return false }
         if ctrl {
             switch key {
-            case 78: Task { if await mayReplace() { media.stop(); self.document.replace(with: Project(), url: nil) } }
+            case 78: Task { await newProject() }
             case 79: Task { if let url = await pickFile([".detx", ".cappellaproject"]) { await open(url) } }
             case 83: Task { _ = await save(as: shift, copy: alt) }
             case 90: self.document.undo()
             case 89: self.document.redo()
-            case 67 where !self.document.editing: copyPhrase()
-            case 88 where !self.document.editing: copyPhrase(cut: true)
-            case 86 where !self.document.editing: Task { await pastePhrase() }
+            case 67 where !timelineTextHasFocus: copyPhrase()
+            case 88 where !timelineTextHasFocus: copyPhrase(cut: true)
+            case 86 where !timelineTextHasFocus: Task { await pastePhrase() }
             case 70: Task { await find() }
             case 71: Task { await goTimecode() }
             case 80: Task { await properties() }
@@ -199,12 +206,13 @@ extension WindowsEditor {
             case 120: navigate("role", -1)
             case 121: navigate("role", 1)
             case 116...119: perform { try self.document.moveTrack(key - 116) }
-            default: return
+            default: return false
             }
         } else {
             switch key {
             case 32:
-                args.handled = true; restoreTimelineFocus(); togglePlay(); return
+                if !isRepeat { togglePlay() }
+                return true
             case 38: setRate(1)
             case 40: setRate(-1)
             case 37: if alt { media.stop(); seek(self.document.frame - 1) } else { navigate("sign", -1) }
@@ -232,9 +240,9 @@ extension WindowsEditor {
             case 103: addSign("a")
             case 104: addSign("o")
             case 105: addSign("weuque")
-            default: return
+            default: return false
             }
         }
-        args.handled = true
+        return true
     }
 }

@@ -3,16 +3,40 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Push-Location $repo
 try {
-    if (!$SkipPrepare) { & "$PSScriptRoot/prepare-windows.ps1" }
+    # Skip preparation only when the generated bindings match the configuration.
+    # An unstamped cache (including old TabView bindings) is upgraded once.
+    $configurationHash = (Get-FileHash -LiteralPath "$repo/windows/projections.json" -Algorithm SHA256).Hash
+    $projectionStamp = Join-Path $repo '.windows/projections.config.sha256'
+    $bindingsCurrent = (Test-Path -LiteralPath '.windows/Projections/Package.swift') -and
+        (Test-Path -LiteralPath $projectionStamp) -and
+        ([IO.File]::ReadAllText($projectionStamp).Trim() -eq $configurationHash)
+    if (!$SkipPrepare -or !$bindingsCurrent) { & "$PSScriptRoot/prepare-windows.ps1" }
     if (!(Test-Path '.windows/Projections/Package.swift')) { throw 'Exécuter scripts/prepare-windows.ps1 avant de compiler.' }
+    # Refresh handwritten runtime support even when generated bindings are cached.
+    foreach ($supportModule in @('WinUI', 'WinAppSDK')) {
+        Get-ChildItem -LiteralPath "$repo/windows/Support/$supportModule" -Filter '*.swift' -File | ForEach-Object {
+            $supportTarget = "$repo/.windows/Projections/Sources/$supportModule/Support/$($_.Name)"
+            if (!(Test-Path -LiteralPath $supportTarget)) { $supportTarget = "$repo/.windows/Projections/Sources/$supportModule/$($_.Name)" }
+            if (!(Test-Path -LiteralPath $supportTarget) -or [IO.File]::ReadAllText($_.FullName) -ne [IO.File]::ReadAllText($supportTarget)) {
+                Copy-Item -LiteralPath $_.FullName -Destination $supportTarget
+            }
+        }
+    }
     # Windows PowerShell 5.1 turns redirected native stderr (including compiler
     # warnings) into error records. Judge the compiler by its exit code.
+    $buildLog = Join-Path $repo ".build/windows-build-$Configuration.log"
     $ErrorActionPreference = 'Continue'
     try {
-        & swift build -c $Configuration --product CappellaWindows -j 4 2>&1 | ForEach-Object { Write-Host $_.ToString() }
+        # Merge inside cmd so PowerShell 5 does not turn each Swift diagnostic
+        # line into a RemoteException. Configuration is restricted by ValidateSet.
+        $buildCommand = "swift build -c $Configuration --product CappellaWindows -j 4 2>&1"
+        & $env:ComSpec /d /c $buildCommand | Tee-Object -FilePath $buildLog | ForEach-Object { Write-Host $_ }
         $compileExitCode = $LASTEXITCODE
     } finally { $ErrorActionPreference = 'Stop' }
-    if ($compileExitCode -ne 0) { throw "Compilation Windows échouée ($compileExitCode)." }
+    if ($compileExitCode -ne 0) {
+        Select-String -LiteralPath $buildLog -Pattern "error:" | Select-Object -First 12 | ForEach-Object { Write-Host $_.Line }
+        throw "Compilation Windows échouée ($compileExitCode). Journal : $buildLog"
+    }
     $bin = (& swift build -c $Configuration --show-bin-path | Select-Object -Last 1).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Répertoire Swift introuvable.' }
     $app = Join-Path $repo 'dist/Cappella-Windows-x64'

@@ -8,47 +8,30 @@ import WinSDK
 @main
 public final class CappellaWindowsApp: SwiftApplication {
     private var editor: WindowsEditor?
-    private var instance: AppInstance?
+    private var openingTask: Task<Void, Never>?
     private var pendingFiles: [URL] = []
     private var openingFiles = false
     public required init() { super.init() }
     override public func onLaunched(_ args: WinUI.LaunchActivatedEventArgs) {
         MainActor.assumeIsolated {
-            guard registerInstance() else { return }
             let editor = WindowsEditor(); self.editor = editor
+            editor.onClosed = { [weak self] in
+                self?.openingTask?.cancel(); self?.openingTask = nil
+                self?.pendingFiles.removeAll(); self?.editor = nil
+                try? self?.exit()
+                // The custom desktop message pump must also be told to stop.
+                PostQuitMessage(0)
+            }
             do { try editor.window.activate() } catch { print(error) }
             let files = CommandLine.arguments.dropFirst().filter { ["detx", "cappellaproject"].contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
             enqueue(files.map { URL(fileURLWithPath: $0) })
+            if editor.document.preferences.showControlAtLaunch { editor.showProjection() }
             editor.recordSmokeState()
             recordActivationState()
         }
     }
-    @MainActor
-    private func registerInstance() -> Bool {
-        do {
-            let key = ProcessInfo.processInfo.environment["CAPPELLA_WINDOWS_INSTANCE_KEY"] ?? "Cappella.Editor.1"
-            guard let instance = try AppInstance.findOrRegisterForKey(key) else { return true }
-            self.instance = instance
-            WindowsActivation.trace("registered current=\(instance.isCurrent)")
-            if !instance.isCurrent {
-                let arguments = try AppInstance.getCurrent().getActivatedEventArgs()
-                WindowsActivation.trace("got arguments")
-                Task { @MainActor in
-                    do { WindowsActivation.trace("redirect start"); try await instance.redirectActivationToAsync(arguments).get(); WindowsActivation.trace("redirect finished") }
-                    catch { print("Activation: \(error)") }
-                    try? self.exit()
-                }
-                return false
-            }
-            instance.activated.addHandler { [weak self] _, args in
-                WindowsActivation.trace("received activated")
-                let commandLine = WindowsActivation.commandLine(from: args)
-                let urls = WindowsActivation.files(in: commandLine)
-                WindowsActivation.trace("parsed files=\(urls.count)")
-                DispatchQueue.main.async { self?.enqueue(urls) }
-            }
-        } catch { print("Single instance: \(error)") }
-        return true
+    override public func preTranslateMessage(_ message: UnsafePointer<MSG>) -> Bool {
+        MainActor.assumeIsolated { editor?.handleDesktopMessage(message.pointee) ?? false }
     }
     @MainActor
     private func enqueue(_ urls: [URL]) {
@@ -58,11 +41,12 @@ public final class CappellaWindowsApp: SwiftApplication {
         try? editor.window.activate()
         guard !openingFiles else { return }
         openingFiles = true
-        Task { @MainActor in
-            defer { openingFiles = false }
-            while !pendingFiles.isEmpty {
+        openingTask = Task { @MainActor in
+            defer { openingFiles = false; openingTask = nil }
+            while !pendingFiles.isEmpty && !Task.isCancelled && !editor.isClosed {
                 // A modal save/discard/cancel prompt must finish before the next file.
-                while editor.dialogShowing { try? await Task.sleep(nanoseconds: 100_000_000) }
+                while editor.dialogShowing && !Task.isCancelled && !editor.isClosed { try? await Task.sleep(nanoseconds: 100_000_000) }
+                guard !Task.isCancelled, !editor.isClosed else { return }
                 await editor.open(pendingFiles.removeFirst())
                 recordActivationState()
             }

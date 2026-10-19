@@ -26,18 +26,6 @@ extension WindowsEditor {
         windowChrome.sizeChanged.addHandler { [weak self] _, _ in self?.updateCaptionInsets() }
         windowChrome.loaded.addHandler { [weak self] _, _ in self?.updateCaptionInsets() }
         updateCaptionInsets()
-        // A noninteractive, programmatically focusable target for transport keys.
-        timelineFocus.width = 1; timelineFocus.height = 1; timelineFocus.opacity = 0
-        timelineFocus.isHitTestVisible = false; timelineFocus.isTabStop = false
-        timelineFocus.horizontalAlignment = .left; timelineFocus.verticalAlignment = .top
-        root.children.append(timelineFocus)
-        root.pointerReleased.addHandler { [weak self] _, _ in self?.restoreTimelineFocus() }
-        root.previewKeyUp.addHandler { [weak self] _, args in
-            guard let self, let args, args.key.rawValue == 32, !dialogShowing,
-                  !self.document.editing, !hasOpenPopup else { return }
-            // Menu/button activation also consumes Space on key-up.
-            args.handled = true
-        }
     }
     func updateCaptionInsets() {
         let dpi = max(1, root.xamlRoot?.rasterizationScale ?? 1)
@@ -72,10 +60,12 @@ extension WindowsEditor {
               let popups = try? VisualTreeHelper.getOpenPopupsForXamlRoot(xamlRoot) else { return false }
         return popups.size > 0
     }
-    func restoreTimelineFocus() {
-        _ = try? window.dispatcherQueue.tryEnqueue { [weak self] in
-            guard let self, !dialogShowing, !self.document.editing, !isResizing, !hasOpenPopup else { return }
-            _ = try? timelineFocus.focus(.programmatic)
+    func fitBandHeight() {
+        guard root.actualHeight > 0, let row = root.rowDefinitions.getAt(3) else { return }
+        let height = min(max(120, root.actualHeight - 190), max(120, self.document.preferences.bandHeight))
+        if height != appliedBandHeight {
+            row.height = GridLength(value: height, gridUnitType: .pixel)
+            appliedBandHeight = height
         }
     }
     func makeResizeHandle(vertical: Bool, position: @escaping () -> Double,
@@ -83,29 +73,17 @@ extension WindowsEditor {
         let handle = Border()
         handle.background = brush(0.5, 0.5, 0.5, alpha: 0.35)
         handle.protectedCursor = try? InputSystemCursor.create(vertical ? .sizeWestEast : .sizeNorthSouth)
-        var drag: (coordinate: Double, initial: Double)?
-        func complete() {
-            guard drag != nil else { return }
-            drag = nil; isResizing = false; finish(); restoreTimelineFocus()
+        let region = WindowsResizeRegion(element: handle, vertical: vertical, position: position, change: change, finish: finish)
+        let regionIndex = resizeRegions.count
+        resizeRegions.append(region)
+        // Also support WinUI pointer input when Windows delivers pointer events
+        // instead of legacy mouse messages. The drag timer follows the cursor.
+        handle.pointerPressed.addHandler { [weak self] _, args in
+            guard let self, let args, let point = try? args.getCurrentPoint(root),
+                  point.properties.isLeftButtonPressed else { return }
+            guard resizeRegions.indices.contains(regionIndex) else { return }
+            beginResize(resizeRegions[regionIndex]); args.handled = true
         }
-        handle.pointerPressed.addHandler { [weak self, weak handle] _, args in
-            guard let self, let handle, let args,
-                  let point = try? args.getCurrentPoint(root), point.properties.isLeftButtonPressed else { return }
-            guard (try? handle.capturePointer(args.pointer)) == true else { return }
-            drag = (vertical ? Double(point.position.x) : Double(point.position.y), position())
-            isResizing = true; args.handled = true
-        }
-        handle.pointerMoved.addHandler { [weak self] _, args in
-            guard let self, let drag, let args, let point = try? args.getCurrentPoint(root) else { return }
-            let current = vertical ? Double(point.position.x) : Double(point.position.y)
-            change(drag.initial + current - drag.coordinate); args.handled = true
-        }
-        handle.pointerReleased.addHandler { [weak handle] _, args in
-            guard drag != nil else { return }
-            complete(); try? handle?.releasePointerCaptures(); args?.handled = true
-        }
-        handle.pointerCanceled.addHandler { [weak handle] _, _ in complete(); try? handle?.releasePointerCaptures() }
-        handle.pointerCaptureLost.addHandler { _, _ in complete() }
         return handle
     }
 }

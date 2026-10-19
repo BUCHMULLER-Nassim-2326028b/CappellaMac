@@ -15,6 +15,7 @@ final class WindowsTimelineMotion {
     private var initialized = false
 
     func invalidate() { initialized = false }
+    func stop() { try? visual?.stopAnimation("Translation.X"); initialized = false }
 
     func update(_ element: Canvas, offset: Double, speed: Double, fallback: CompositeTransform) {
         let now = ProcessInfo.processInfo.systemUptime
