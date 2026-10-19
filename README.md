@@ -85,7 +85,7 @@ complète avec chaque comportement de l'original.
 | Audio Windows | Étendre la couverture des dispositions multicanales et des formats AIFF/AIFC ; valider les codecs avec des médias réels. |
 | Compatibilité des projets | Vérifier davantage de variantes DetX, les anciens .det et la réouverture des exports dans le Cappella d'origine. |
 | Outils métier avancés | Compléter le protocole Orphée/FTDI, le sous-titrage UER et l'impression d'origine. |
-| Lecture inverse | Navigation par recherches d'images, sans restitution audio inversée. |
+| Lecture inverse | Son inversé implémenté sur Mac et Windows ; première préparation temporaire nécessaire, codecs et synchronisation à valider sur médias réels. |
 | Validation en séance | Comparer typographie, saisie, synchronisation et fluidité sur différents écrans et projets longs. |
 | Distribution | Valider Windows ARM64 et le cycle installation/désinstallation ; préparer la signature Windows et la notarisation Mac. |
 

@@ -4,7 +4,7 @@ import AppKit
 import CappellaCore
 
 /// One timeline for the editor, with or without an attached video.
-/// Negative shuttle uses frame seeking when reverse decoding is unavailable.
+/// Reverse sound uses a separate PCM player; video follows its audio clock.
 final class Transport: ObservableObject {
     let player = AVPlayer()
     private var videoURL: URL?
@@ -12,6 +12,13 @@ final class Transport: ObservableObject {
     private var routingTracks: [(track: AVAssetTrack, offset: Int, count: Int)] = []
     private var channelCount = 0
     private var preparedAudio: StereoAudioPreparation?
+    private let reversePlayer = AVPlayer()
+    private var reverseAudio: ReverseAudioPreparation?
+    private var reverseTask: Task<Void, Never>?
+    private var reverseObservation: NSKeyValueObservation?
+    private var reverseGeneration = UUID()
+    private var reverseSeekGeneration = UUID()
+    private var reverseSeeking = false
     @Published var preparingAudio = false
     @Published var seconds = 0.0
     @Published var duration = 0.0
@@ -40,7 +47,16 @@ final class Transport: ObservableObject {
 
     private func tick() {
         let now = Date(); let elapsed = min(0.1, now.timeIntervalSince(previousTick)); previousTick = now
-        guard rate != 0, !seekInFlight else { return }
+        guard rate != 0 else { return }
+        if rate < 0, channelCount > 0, player.currentItem != nil {
+            guard reverseAudio != nil, !reverseSeeking else { return }
+            let position = reversePlayer.currentTime().seconds
+            if position.isFinite { seconds = max(0, duration - position) }
+            requestMediaSeek(seconds)
+            if seconds <= 0 { setRate(0) }
+            return
+        }
+        guard !seekInFlight else { return }
         if player.currentItem != nil && rate > 0 {
             let position = player.currentTime().seconds
             if position.isFinite { seconds = max(0, position) }
@@ -55,7 +71,7 @@ final class Transport: ObservableObject {
     }
 
     func close() {
-        loadTask?.cancel(); loadTask = nil; setRate(0)
+        loadTask?.cancel(); loadTask = nil; setRate(0); clearReverseAudio()
         resetMediaSeeks()
         player.replaceCurrentItem(with: nil); itemObservation = nil; preparedAudio = nil
         videoURL = nil; soundURL = nil; routingTracks.removeAll(); channelCount = 0
@@ -73,7 +89,7 @@ final class Transport: ObservableObject {
 
     private func loadMedia() {
         let savedRate = rate; let savedPosition = seconds
-        loadTask?.cancel(); setRate(0); error = nil; hasVI = false; preparingAudio = true
+        loadTask?.cancel(); setRate(0); clearReverseAudio(); error = nil; hasVI = false; preparingAudio = true
         let image = videoURL; let sound = soundURL
         for url in [image, sound].compactMap({ $0 }) {
             if url.startAccessingSecurityScopedResource() { scopedURLs.append(url) }
@@ -145,10 +161,12 @@ final class Transport: ObservableObject {
         try applyRouting(to: item); updateAudio()
     }
 
-    private func applyRouting(to item: AVPlayerItem) throws {
-        let selected = Set(AudioRouting.selectedChannels(total: channelCount, international: usingVI))
+    private func applyRouting(to item: AVPlayerItem,
+                              tracks: [(track: AVAssetTrack, offset: Int, count: Int)]? = nil,
+                              total: Int? = nil) throws {
+        let selected = Set(AudioRouting.selectedChannels(total: total ?? channelCount, international: usingVI))
         var parameters: [AVMutableAudioMixInputParameters] = []
-        for source in routingTracks {
+        for source in tracks ?? routingTracks {
             let input = AVMutableAudioMixInputParameters(track: source.track)
             let local = (0..<source.count).filter { selected.contains(source.offset + $0) }
             if local.isEmpty { input.setVolume(0, at: .zero) }
@@ -165,6 +183,7 @@ final class Transport: ObservableObject {
         guard target.isFinite else { return }
         seconds = max(0, duration > 0 ? min(target, duration) : target)
         requestMediaSeek(seconds)
+        if rate < 0 { seekReverseAudio() }
         previousTick = Date()
     }
 
@@ -192,28 +211,113 @@ final class Transport: ObservableObject {
         player.currentItem?.cancelPendingSeeks()
     }
 
-    func setRate(_ value: Float) {
-        rate = value; previousTick = Date()
-        if value > 0 {
-            player.playImmediately(atRate: value)
+    private func clearReverseAudio() {
+        reverseGeneration = UUID(); reverseSeekGeneration = UUID()
+        reverseTask?.cancel(); reverseTask = nil; reverseSeeking = false
+        reversePlayer.pause(); reversePlayer.currentItem?.cancelPendingSeeks()
+        reversePlayer.replaceCurrentItem(with: nil); reverseObservation = nil; reverseAudio = nil
+    }
 
-        } else { player.pause() }
+    private func prepareReverseAudio() {
+        guard channelCount > 0, let asset = player.currentItem?.asset,
+              reverseAudio == nil, reverseTask == nil else { return }
+        let generation = reverseGeneration
+        preparingAudio = true
+        reverseTask = Task { @MainActor [weak self] in
+            do {
+                let worker = Task.detached { try await ReverseAudioPreparation.prepare(asset: asset) }
+                let prepared = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+                try Task.checkCancellation()
+                guard let self, self.reverseGeneration == generation else { return }
+                let item = AVPlayerItem(asset: prepared.composition)
+                try self.applyRouting(to: item, tracks: prepared.tracks, total: prepared.channelCount)
+                self.reverseAudio = prepared; self.reverseTask = nil; self.preparingAudio = false
+                self.reverseObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+                    guard item.status == .failed else { return }
+                    let message = item.error?.localizedDescription ?? "Lecture du son inversé impossible."
+                    DispatchQueue.main.async {
+                        guard let self, self.reverseGeneration == generation else { return }
+                        self.setRate(0); self.error = message
+                    }
+                }
+                self.reversePlayer.replaceCurrentItem(with: item)
+                if self.rate < 0 { self.seekReverseAudio() }
+            } catch {
+                guard let self, !Task.isCancelled, self.reverseGeneration == generation else { return }
+                self.reverseTask = nil; self.preparingAudio = false
+                self.setRate(0); self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private func seekReverseAudio() {
+        guard reverseAudio != nil, rate < 0 else { return }
+        reversePlayer.pause()
+        reversePlayer.currentItem?.cancelPendingSeeks()
+        reverseSeeking = true
+        let generation = UUID(); reverseSeekGeneration = generation
+        let target = CMTime(seconds: max(0, duration - seconds), preferredTimescale: 48000)
+        reversePlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
+            DispatchQueue.main.async {
+                guard let self, self.reverseSeekGeneration == generation else { return }
+                if !completed {
+                    self.setRate(0); self.error = "Positionnement du son inversé impossible."
+                    return
+                }
+                self.reverseSeeking = false
+                if self.rate < 0 { self.reversePlayer.playImmediately(atRate: abs(self.rate)) }
+            }
+        }
+    }
+
+    func setRate(_ value: Float) {
+        if rate < 0, reverseAudio != nil, !reverseSeeking {
+            let position = reversePlayer.currentTime().seconds
+            if position.isFinite { seconds = max(0, duration - position) }
+        }
+        reversePlayer.pause()
+        reverseSeekGeneration = UUID(); reverseSeeking = false
+        rate = value; previousTick = Date(); updateAudio()
+        if value > 0 {
+            requestMediaSeek(seconds)
+            player.playImmediately(atRate: value)
+        } else {
+            player.pause()
+            if value < 0 {
+                if reverseAudio != nil { seekReverseAudio() }
+                else { prepareReverseAudio() }
+            } else { requestMediaSeek(seconds) }
+        }
     }
     func toggle() { setRate(rate == 0 ? 1 : 0) }
     func toggleVI() {
         guard hasVI, let item = player.currentItem else { error = "Le média doit contenir deux canaux (VO/VI mono) ou quatre canaux (VO/VI stéréo)."; return }
         usingVI.toggle()
-        do { try applyRouting(to: item) } catch { usingVI.toggle(); self.error = error.localizedDescription }
+        do {
+            try applyRouting(to: item)
+            if let reverse = reverseAudio, let reverseItem = reversePlayer.currentItem {
+                try applyRouting(to: reverseItem, tracks: reverse.tracks, total: reverse.channelCount)
+            }
+        } catch {
+            usingVI.toggle()
+            try? applyRouting(to: item)
+            if let reverse = reverseAudio, let reverseItem = reversePlayer.currentItem {
+                try? applyRouting(to: reverseItem, tracks: reverse.tracks, total: reverse.channelCount)
+            }
+            self.error = error.localizedDescription
+        }
         updateAudio()
     }
     func toggleMute() { muted.toggle(); updateAudio() }
     func changeVolume(_ delta: Float) { volume = min(1, max(0, volume + delta)); updateAudio() }
     private func updateAudio() {
-        player.isMuted = muted
+        player.isMuted = muted || rate < 0
         player.volume = volume
+        reversePlayer.isMuted = muted || rate >= 0
+        reversePlayer.volume = volume
     }
     deinit {
-        timer?.invalidate(); loadTask?.cancel()
+        timer?.invalidate(); loadTask?.cancel(); reverseTask?.cancel()
         scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
     }
 }

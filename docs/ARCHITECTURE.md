@@ -8,7 +8,7 @@
 | Sources/CappellaSession | Session Mac, remplacement/enregistrement des documents, événements Finder et adaptation des menus AppKit |
 | Sources/CappellaMac | Interface SwiftUI/AppKit, transport AVFoundation, édition sur bande, projection, enregistrement et analyse des plans |
 | Sources/CappellaWindows | Interface WinUI 3, document Windows, transport multimédia et édition sur bande |
-| Sources/CWindowsInterop | Pont natif pour rattacher les sélecteurs Windows à la fenêtre |
+| Sources/CWindowsInterop | Rattachement des sélecteurs à la fenêtre et décodage audio Media Foundation pour la lecture inverse |
 | windows/Support | Support Swift-WinRT intégré aux projections générées |
 | packaging | Métadonnées du bundle Mac et ressources distribuées |
 | Tests | Tests du moteur commun et des adaptateurs de chaque plateforme |
@@ -39,7 +39,7 @@ Ses extensions répartissent les responsabilités :
 | WindowsPreferencesPanel | Préférences Général, Bande rythmo et Vidéo |
 | WindowsRolesPanel | Choix, gestion et portraits des rôles |
 | WindowsProjectMedia | Chargement et déchargement des médias au changement de projet |
-| WindowsMedia / WindowsAudioPreparation | Lecture et préparation de l'audio externe |
+| WindowsMedia / WindowsAudioPreparation / WindowsReverseAudio | Lecture, préparation de l'audio externe et cache PCM inversé |
 | WindowsDiagnostics | Marqueurs de lancement utilisés par les contrôles CI |
 
 TimelineScrollRange partage les bornes et la taille de vue entre la barre WinUI
@@ -75,7 +75,7 @@ La présence d'une fonction dans le code ne certifie pas sa fidélité métier.
 Les exports doivent être relus dans le Cappella d'origine sur des copies.
 
 - Compatibilité avec d'autres variantes DetX et avec les anciens fichiers .det à vérifier.
-- Lecture inverse réalisée par recherches d'images ; pas de restitution audio inversée.
+- Lecture inverse : son PCM inversé préparé en arrière-plan, vidéo suivie par recherches d'images. Première préparation et espace temporaire nécessaires ; synchronisation à valider en séance.
 - Rendu typographique, codecs et synchronisation à comparer avec les médias réels.
 - Protocole Orphée/FTDI, sous-titrage UER et impression d'origine à compléter.
 - Les interfaces ne proposent pas encore exactement les mêmes fonctions :

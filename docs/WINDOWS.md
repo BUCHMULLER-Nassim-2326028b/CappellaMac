@@ -82,6 +82,15 @@ charge sont préparés en WAV ; quatre canaux sont séparés en deux paires sté
 et VI. Les fichiers source restent inchangés. Les dispositions de quatre flux mono
 et les formats compressés AIFC ne sont pas équivalents au moteur Mac.
 
+La lecture arrière prépare une copie PCM inversée des pistes audio avec Media
+Foundation, puis lit cette copie à vitesse positive pendant que la vidéo recule.
+Le son externe conserve la priorité et le choix VO/VI reste actif. La première
+lecture arrière attend la préparation ; les suivantes réutilisent le cache du
+projet. La préparation travaille par blocs, respecte l'annulation et supprime
+ses fichiers temporaires au déchargement. Elle nécessite de l'espace disque ;
+chaque piste WAV de sortie est limitée à 4 Go. Les codecs et la synchronisation
+doivent encore être validés sur des médias réels.
+
 L'enregistrement microphone et la détection automatique des plans restent propres
 au Mac. La projection Windows affiche la vidéo ; elle ne reproduit pas encore
 l'ensemble de l'écran de contrôle Mac. La recherche et certains outils avancés

@@ -43,14 +43,14 @@ final class StereoAudioPreparation {
          AVLinearPCMIsNonInterleaved: false]
     }
 
-    private static func decode(asset: AVAsset, track: AVAssetTrack, to url: URL) throws {
+    static func decode(asset: AVAsset, track: AVAssetTrack, to url: URL, channels: Int = 1, duration: Double = 0) throws {
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings(channels: 1))
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings(channels: channels))
         reader.add(output)
-        let file = try AVAudioFile(forWriting: url, settings: settings(channels: 1), commonFormat: .pcmFormatFloat32, interleaved: false)
+        let file = try AVAudioFile(forWriting: url, settings: settings(channels: channels), commonFormat: .pcmFormatFloat32, interleaved: false)
         guard reader.startReading() else { throw reader.error ?? CocoaError(.fileReadCorruptFile) }
         guard let silence = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4096) else { throw CocoaError(.fileWriteUnknown) }
-        memset(silence.floatChannelData![0], 0, 4096 * MemoryLayout<Float>.size)
+        for channel in 0..<channels { memset(silence.floatChannelData![channel], 0, 4096 * MemoryLayout<Float>.size) }
         while let sample = output.copyNextSampleBuffer() {
             if Task.isCancelled { reader.cancelReading(); throw CancellationError() }
             let count = CMSampleBufferGetNumSamples(sample)
@@ -69,6 +69,12 @@ final class StereoAudioPreparation {
             try file.write(from: buffer)
         }
         if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadCorruptFile) }
+        let end = AVAudioFramePosition((max(0, duration) * 48000).rounded())
+        while file.framePosition < end {
+            try Task.checkCancellation()
+            silence.frameLength = AVAudioFrameCount(min(4096, end - file.framePosition))
+            try file.write(from: silence)
+        }
     }
 
     private static func pair(left: URL, right: URL, to url: URL) throws {

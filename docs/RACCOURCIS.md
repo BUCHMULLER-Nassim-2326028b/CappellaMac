@@ -46,7 +46,8 @@ une seconde pression retire le statut et le soulignement.
 | F5 à F8 | Sélectionner une piste |
 | Ctrl+F5 à Ctrl+F8 | Déplacer la phrase vers une piste |
 
-Ces commandes sont raccordées sur Mac et Windows. La lecture inverse reste une
+
+
 navigation par recherches d'images et ne restitue pas l'audio à l'envers.
 
 ## Affichage et audio
