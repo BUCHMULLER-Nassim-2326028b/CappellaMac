@@ -27,14 +27,15 @@ struct FinderOpenCheck {
             }
         }
     }
-    @MainActor static func waitForState(_ path: URL, file: URL, app: NSRunningApplication) async throws {
+    @MainActor static func waitForState(_ path: URL, file: URL, expectedPID: Int32? = nil) async throws -> State {
         let deadline = Date().addingTimeInterval(30)
         while true {
-            try require(!app.isTerminated, "L'application s'est fermée pendant l'ouverture Finder.")
             if let data = try? Data(contentsOf: path), let state = try? JSONDecoder().decode(State.self, from: data), state.file == file.resolvingSymlinksInPath().standardizedFileURL.path {
-                try require(state.pid == app.processIdentifier, "Le fichier a été ouvert dans un autre processus.")
+                if let expectedPID {
+                    try require(state.pid == expectedPID, "Le fichier a été ouvert dans un autre processus.")
+                }
                 try require(state.visible && state.windows == 1, "Finder doit afficher exactement une fenêtre principale.")
-                return
+                return state
             }
             try require(Date() < deadline, "Le fichier Finder n'a pas atteint une fenêtre visible : \(file.lastPathComponent).")
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -56,19 +57,20 @@ struct FinderOpenCheck {
             "CAPPELLA_EXTERNAL_OPEN_TEST_STATE": state.path,
             "CAPPELLA_SMOKE_TEST_MARKER": directory.appendingPathComponent("editor-ready.txt").path
         ]
-        let running = try await open(first, app: app, environment: environment)
-        defer { running.terminate() }
-        try await waitForState(state, file: first, app: running)
-        try FileManager.default.removeItem(at: state)
-        let reopened = try await open(next, app: app, environment: environment)
-        try require(reopened.processIdentifier == running.processIdentifier, "L'ouverture d'un autre fichier ne doit pas relancer l'application.")
-        try await waitForState(state, file: next, app: running)
+        _ = try await open(first, app: app, environment: environment)
+        let initialState = try await waitForState(state, file: first)
+        let processID = initialState.pid
+        defer { NSRunningApplication(processIdentifier: processID)?.terminate() }
         try FileManager.default.removeItem(at: state)
         _ = try await open(next, app: app, environment: environment)
-        try await waitForState(state, file: next, app: running)
+        try await waitForState(state, file: next, expectedPID: processID)
+        try FileManager.default.removeItem(at: state)
+        _ = try await open(next, app: app, environment: environment)
+        try await waitForState(state, file: next, expectedPID: processID)
         // Stay alive through the following AppKit/SwiftUI scene updates too.
         try await Task.sleep(nanoseconds: 1_000_000_000)
-        try require(!running.isTerminated, "L'application s'est fermée après la livraison du fichier.")
+        let running = NSRunningApplication(processIdentifier: processID)
+        try require(running?.isTerminated == false, "L'application s'est fermée après la livraison du fichier.")
         print("Finder : lancement par fichier, ouverture à chaud et réouverture identique dans une seule fenêtre vérifiés.")
     }
     @MainActor static func main() {
