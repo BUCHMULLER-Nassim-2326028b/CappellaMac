@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Executable, [Parameter(Mandatory=$true)][string]$Icon)
+﻿param([Parameter(Mandatory=$true)][string]$Executable, [Parameter(Mandatory=$true)][string]$Icon, [ValidateSet('x64','arm64')][string]$Architecture = 'x64')
 $ErrorActionPreference = 'Stop'
 # PE resources only: the application UI is implemented with WinUI controls.
 if (!('CappellaPEResources' -as [type])) {
@@ -18,7 +18,7 @@ public static class CappellaPEResources {
     static void Write(IntPtr handle, int type, int id, byte[] bytes) {
         if (!UpdateResourceW(handle, (IntPtr)type, (IntPtr)id, 0, bytes, (uint)bytes.Length)) throw new Win32Exception();
     }
-    public static void UseWindowsSubsystem(string executable) {
+    public static void UseWindowsSubsystem(string executable, ushort expectedMachine) {
         // Equivalent to editbin /SUBSYSTEM:WINDOWS. Keep the Swift CRT entry
         // point intact; avoid making linker flags invalidate every projection.
         using (var file = new FileStream(executable, FileMode.Open, FileAccess.ReadWrite))
@@ -28,7 +28,7 @@ public static class CappellaPEResources {
             file.Position=0x3C; int pe=reader.ReadInt32();
             if (pe<0x40 || pe>file.Length-96) throw new InvalidDataException("Invalid PE offset.");
             file.Position=pe;
-            if (reader.ReadUInt32()!=0x4550 || reader.ReadUInt16()!=0x8664) throw new InvalidDataException("Expected x64 PE image.");
+            if (reader.ReadUInt32()!=0x4550 || reader.ReadUInt16()!=expectedMachine) throw new InvalidDataException("Unexpected PE architecture.");
             file.Position=pe+24;
             if (reader.ReadUInt16()!=0x20B) throw new InvalidDataException("Expected PE32+ image.");
             file.Position=pe+24+64; writer.Write((uint)0); // Checksum is optional for user applications.
@@ -74,6 +74,9 @@ $manifest = @'
   </windowsSettings></application>
 </assembly>
 '@
+$manifestArchitecture = if ($Architecture -eq 'arm64') { 'arm64' } else { 'amd64' }
+$manifest = $manifest.Replace('processorArchitecture="amd64"', ('processorArchitecture="' + $manifestArchitecture + '"'))
 [CappellaPEResources]::Embed((Resolve-Path -LiteralPath $Executable).Path, (Resolve-Path -LiteralPath $Icon).Path, $manifest)
 
-[CappellaPEResources]::UseWindowsSubsystem((Resolve-Path -LiteralPath $Executable).Path)
+$machine = if ($Architecture -eq 'arm64') { [uint16]0xAA64 } else { [uint16]0x8664 }
+[CappellaPEResources]::UseWindowsSubsystem((Resolve-Path -LiteralPath $Executable).Path, $machine)

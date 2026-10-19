@@ -96,3 +96,39 @@ function Copy-WindowsRuntimeDependencies {
     }
     Write-Host ('DLL Swift et VC++ distribuées : {0}/{1} (dépendances transitives et modules dynamiques conservés).' -f $selected.Count, $libraries.Count)
 }
+
+function Get-CappellaDistributionVersion {
+    param([Parameter(Mandatory = $true)][string]$RepositoryRoot, [string]$Version)
+    if (!$Version) {
+        if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -match '^v(.+)$') {
+            $Version = $Matches[1]
+        } else {
+            [xml]$info = [IO.File]::ReadAllText((Join-Path $RepositoryRoot 'packaging/Info.plist'))
+            $Version = $info.SelectSingleNode("//key[text()='CFBundleShortVersionString']").NextSibling.InnerText
+        }
+    }
+    if ($Version -notmatch '^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$') {
+        throw 'Version invalide : utiliser par exemple 0.9.0 ou 0.9.0-beta.1.'
+    }
+    return $Version
+}
+
+function Get-WindowsPEArchitecture {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $stream = [IO.File]::OpenRead($Path)
+    $reader = New-Object IO.BinaryReader($stream)
+    try {
+        if ($reader.ReadUInt16() -ne 0x5A4D) { throw "Signature DOS invalide : $Path" }
+        $stream.Position = 0x3C
+        $offset = $reader.ReadInt32()
+        if ($offset -lt 0x40 -or $offset -gt $stream.Length - 6) { throw "Offset PE invalide : $Path" }
+        $stream.Position = $offset
+        if ($reader.ReadUInt32() -ne 0x4550) { throw "Signature PE invalide : $Path" }
+        switch ($reader.ReadUInt16()) {
+            0x8664 { return 'x64' }
+            0xAA64 { return 'arm64' }
+            0x014C { return 'x86' }
+            default { throw "Architecture PE inconnue : $Path" }
+        }
+    } finally { $reader.Dispose(); $stream.Dispose() }
+}

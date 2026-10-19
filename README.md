@@ -28,7 +28,7 @@ Sur un Mac Apple Silicon avec les outils de développement Apple :
     bash scripts/build-macos.sh
     open dist/Cappella.app
 
-Résultats : dist/Cappella.app et dist/Cappella-MacOS-arm64.zip.
+Résultats : dist/Cappella.app et dist/Cappella-VERSION-macOS-arm64-Portable.zip.
 La cible minimale du package est macOS 13. La signature est ad hoc.
 
 ### Windows x64
@@ -48,7 +48,10 @@ Les détails d'installation, les caches et les limites sont dans [Windows](docs/
 
 Les workflows compilent et contrôlent les deux plateformes. Le binaire Mac
 construit sur macOS 15 est également ouvert sur macOS 26. Les archives se
-téléchargent dans les artefacts Cappella-MacOS-arm64 et Cappella-Windows-x64.
+téléchargent dans des artefacts distincts : Cappella-macOS-arm64-Portable,
+Cappella-Windows-x64-Portable, Cappella-Windows-x64-Setup,
+Cappella-Windows-arm64-Portable et Cappella-Windows-arm64-Setup.
+La [procédure de release](docs/RELEASES.md) détaille les cinq fichiers et leur version.
 
 ## Développer et distribuer
 

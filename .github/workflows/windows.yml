@@ -11,14 +11,36 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: windows-2022
+    name: Windows ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2022
+            toolchain_arch: amd64
+          - architecture: arm64
+            runner: windows-11-arm
+            toolchain_arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: compnerd/gha-setup-vsdevenv@5eb3eae1490d4f7875d574c4973539f69109700d
+        with:
+          arch: ${{ matrix.toolchain_arch }}
+          host_arch: ${{ matrix.toolchain_arch }}
       - uses: compnerd/gha-setup-swift@db4ffac97c2db518c2ff4f37f988af89e4411240
         with:
           swift-version: swift-6.2-release
           swift-build: 6.2-RELEASE
+          build_arch: ${{ matrix.toolchain_arch }}
+      - name: Verify native architecture
+        shell: pwsh
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+        run: |
+          $actual = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+          if ($actual -ne $env:EXPECTED_ARCH) { throw "Runner $actual, expected $env:EXPECTED_ARCH." }
       - name: Generate WinRT projections
         shell: pwsh
         run: ./scripts/prepare-windows.ps1
@@ -29,25 +51,33 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build portable application
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -SkipPrepare
+        run: ./scripts/build-windows.ps1 -SkipPrepare -Architecture ${{ matrix.architecture }}
       - name: Install WinUI runtime
         shell: powershell
-        run: ./windows/Installer-runtime.ps1
+        run: ./windows/Installer-runtime.ps1 -Architecture ${{ matrix.architecture }}
       - name: Launch empty editor and open DetX
         shell: pwsh
+        env:
+          APP_ARCH: ${{ matrix.architecture }}
         run: |
-          ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe
-          ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture Tests/Fixtures/layout.detx
-          ./scripts/check-windows-activation.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture Tests/Fixtures/layout.detx
+          $executable = "dist/Cappella-Windows-$env:APP_ARCH/Cappella.exe"
+          ./scripts/smoke-windows.ps1 -Executable $executable
+          ./scripts/smoke-windows.ps1 -Executable $executable -Fixture Tests/Fixtures/layout.detx
+          ./scripts/check-windows-activation.ps1 -Executable $executable -Fixture Tests/Fixtures/layout.detx
           python scripts/make_load_fixture.py dist/load.detx --count 1000
-          ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture dist/load.detx -ExpectedCues 1000
+          ./scripts/smoke-windows.ps1 -Executable $executable -Fixture dist/load.detx -ExpectedCues 1000
       - name: Build Windows installer
         shell: pwsh
-        run: ./scripts/build-windows-installer.ps1
-      - uses: actions/upload-artifact@v4
+        run: ./scripts/build-windows-installer.ps1 -Architecture ${{ matrix.architecture }}
+      - name: Upload portable
+        uses: actions/upload-artifact@v4
         with:
-          name: Cappella-Windows-x64
-          path: |
-            dist/Cappella-Windows-x64.zip
-            dist/Cappella-*-Windows-x64-Setup.exe
+          name: Cappella-Windows-${{ matrix.architecture }}-Portable
+          path: dist/Cappella-*-Windows-${{ matrix.architecture }}-Portable.zip
+          if-no-files-found: error
+      - name: Upload setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cappella-Windows-${{ matrix.architecture }}-Setup
+          path: dist/Cappella-*-Windows-${{ matrix.architecture }}-Setup.exe
           if-no-files-found: error

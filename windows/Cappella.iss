@@ -5,21 +5,31 @@
   #error RepositoryRoot must be provided by scripts/build-windows-installer.ps1
 #endif
 
+#ifndef AppArchitecture
+  #error AppArchitecture must be provided by scripts/build-windows-installer.ps1
+#endif
+#if AppArchitecture == "arm64"
+  #define ArchitectureFilter "arm64"
+#else
+  #define ArchitectureFilter "x64compatible"
+#endif
+
 [Setup]
 AppId={{D6728CEC-8B4B-40E6-900A-B2E4EE09B6A7}
 AppName=Cappella
 AppVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 AppPublisher=Cappella
 DefaultDirName={localappdata}\Programs\Cappella
 DefaultGroupName=Cappella
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed={#ArchitectureFilter}
+ArchitecturesInstallIn64BitMode={#ArchitectureFilter}
 MinVersion=10.0.17763
 OutputDir={#RepositoryRoot}\dist
-OutputBaseFilename=Cappella-{#AppVersion}-Windows-x64-Setup
-SetupIconFile={#RepositoryRoot}\dist\Cappella-Windows-x64\Resources\AppIcon.ico
+OutputBaseFilename=Cappella-{#AppVersion}-Windows-{#AppArchitecture}-Setup
+SetupIconFile={#RepositoryRoot}\dist\Cappella-Windows-{#AppArchitecture}\Resources\AppIcon.ico
 UninstallDisplayIcon={app}\Cappella.exe
 Compression=lzma2
 SolidCompression=yes
@@ -36,9 +46,9 @@ Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDesc
 
 [Files]
 ; Prerequisites first so solid compression does not require extracting the app to reach them.
-Source: "{#RepositoryRoot}\.windows\installer\WindowsAppRuntimeInstall-x64.exe"; Flags: dontcopy
+Source: "{#RepositoryRoot}\.windows\installer\WindowsAppRuntimeInstall-{#AppArchitecture}.exe"; Flags: dontcopy
 Source: "{#RepositoryRoot}\windows\Installer-runtime.ps1"; Flags: dontcopy
-Source: "{#RepositoryRoot}\dist\Cappella-Windows-x64\*"; DestDir: "{app}"; Excludes: "Installer-runtime.ps1,LIRE-MOI.md"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepositoryRoot}\dist\Cappella-Windows-{#AppArchitecture}\*"; DestDir: "{app}"; Excludes: "Installer-runtime.ps1,LIRE-MOI.md"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Cappella"; Filename: "{app}\Cappella.exe"; WorkingDir: "{app}"
@@ -67,12 +77,12 @@ var
 begin
   Result := '';
   WizardForm.StatusLabel.Caption := 'Vérification et installation du runtime Microsoft…';
-  ExtractTemporaryFile('WindowsAppRuntimeInstall-x64.exe');
+  ExtractTemporaryFile('WindowsAppRuntimeInstall-{#AppArchitecture}.exe');
   ExtractTemporaryFile('Installer-runtime.ps1');
   PowerShell := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
   Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{tmp}\Installer-runtime.ps1') + '" -RuntimeInstaller "' +
-    ExpandConstant('{tmp}\WindowsAppRuntimeInstall-x64.exe') + '"';
+    ExpandConstant('{tmp}\WindowsAppRuntimeInstall-{#AppArchitecture}.exe') + '" -Architecture {#AppArchitecture}';
   if not Exec(PowerShell, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     Result := 'Impossible de lancer la préparation du runtime Microsoft : ' + SysErrorMessage(ResultCode)
   else if ResultCode <> 0 then

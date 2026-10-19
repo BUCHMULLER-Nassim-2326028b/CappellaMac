@@ -18,17 +18,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: Cappella-MacOS-arm64
+          pattern: Cappella-*-*-*
+          merge-multiple: true
           path: release
-      - uses: actions/download-artifact@v4
-        with:
-          name: Cappella-Windows-x64
-          path: release
-      - name: Create draft with application archives and installer
+      - name: Create draft with all five distributions
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cd release
-          sha256sum *.zip *.exe > SHA256SUMS.txt
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Cappella $RELEASE_TAG" ./*.zip ./*.exe SHA256SUMS.txt
+          version="${RELEASE_TAG#v}"
+          assets=(
+            "Cappella-$version-macOS-arm64-Portable.zip"
+            "Cappella-$version-Windows-x64-Portable.zip"
+            "Cappella-$version-Windows-x64-Setup.exe"
+            "Cappella-$version-Windows-arm64-Portable.zip"
+            "Cappella-$version-Windows-arm64-Setup.exe"
+          )
+          for asset in "${assets[@]}"; do test -s "$asset"; done
+          sha256sum "${assets[@]}" > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Cappella $RELEASE_TAG" "${assets[@]}" SHA256SUMS.txt

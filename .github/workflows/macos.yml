@@ -44,8 +44,8 @@ jobs:
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: Cappella-MacOS-arm64
-          path: dist/Cappella-MacOS-arm64.zip
+          name: Cappella-macOS-arm64-Portable
+          path: dist/Cappella-*-macOS-arm64-Portable.zip
           if-no-files-found: error
   launch-macos-26:
     needs: build
@@ -54,10 +54,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: Cappella-MacOS-arm64
+          name: Cappella-macOS-arm64-Portable
           path: dist
       - name: Extract app built on macOS 15
-        run: ditto -x -k dist/Cappella-MacOS-arm64.zip dist
+        run: |
+          archives=(dist/Cappella-*-macOS-arm64-Portable.zip)
+          test "${#archives[@]}" -eq 1
+          ditto -x -k "${archives[0]}" dist
       - name: Launch empty editor on macOS 26
         run: python3 scripts/smoke_macos.py "dist/Cappella.app" --screenshot dist/previews/empty.png
       - name: Open DetX with intermediate signs on macOS 26

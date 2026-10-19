@@ -5,13 +5,24 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Cette compilation exige macOS et les outils de développement Apple." >&2
   exit 1
 fi
+version="${1:-}"
+if [[ -z "$version" ]]; then
+  if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+    version="${GITHUB_REF_NAME#v}"
+  else
+    version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Info.plist)"
+  fi
+fi
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$ ]]; then
+  echo "Version invalide : $version" >&2
+  exit 1
+fi
 swift build -c release --arch arm64
 bin_path="$(swift build -c release --arch arm64 --show-bin-path)"
 app_path="$PWD/dist/Cappella.app"
 mkdir -p "$app_path/Contents/MacOS"
 cp "$bin_path/CappellaMac" "$app_path/Contents/MacOS/CappellaMac"
-# Strip debugger data only from the distributed copy, before code signing.
-# Keep Swift runtime metadata and the original build product for diagnostics.
+# Only the distributed copy loses debugger data; preserve the original build.
 xcrun strip -S "$app_path/Contents/MacOS/CappellaMac"
 cp packaging/Info.plist "$app_path/Contents/Info.plist"
 mkdir -p "$app_path/Contents/Resources"
@@ -31,6 +42,9 @@ plutil -lint "$app_path/Contents/Info.plist"
 [[ "$(lipo -archs "$app_path/Contents/MacOS/CappellaMac")" == "arm64" ]]
 codesign --force --sign - "$app_path"
 codesign --verify --strict "$app_path"
-ditto -c -k --sequesterRsrc --keepParent "$app_path" "$PWD/dist/Cappella-MacOS-arm64.zip"
+
+archive="$PWD/dist/Cappella-$version-macOS-arm64-Portable.zip"
+ditto -c -k --sequesterRsrc --keepParent "$app_path" "$archive"
+
 echo "Application ARM64 : $app_path"
-echo "Archive : $PWD/dist/Cappella-MacOS-arm64.zip"
+echo "Archive : $archive"
