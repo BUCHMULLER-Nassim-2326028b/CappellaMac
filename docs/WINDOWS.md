@@ -1,31 +1,70 @@
-# Cappella Windows — Swift-WinRT / WinUI 3
+# Cappella Windows
 
-L’application Windows utilise **les contrôles natifs WinUI 3**, projetés en Swift avec [Swift-WinRT](https://github.com/thebrowsercompany/swift-winrt). Le moteur `CappellaCore` (DetX, signes, timing, données et règles d’édition) est partagé avec macOS. SwiftUI et AppKit restent propres au Mac.
+L'application utilise WinUI 3 depuis Swift avec Swift-WinRT. Le moteur CappellaCore
+est partagé avec le Mac ; SwiftUI et AppKit restent propres à macOS.
 
-## Lancer l’archive
+## Lancer l'archive
 
-Windows 10 version 1903 ou ultérieure, x64. Extraire **tout** le ZIP, conserver les DLL et le dossier `Resources` près de `Cappella.exe`. Installer une fois Windows App Runtime 1.7 x64 avec le script `Installer-runtime.ps1` fourni (clic droit → Exécuter avec PowerShell), puis ouvrir `Cappella.exe`. Les DLL Swift sont incluses ; le compilateur n’est pas nécessaire pour utiliser le logiciel.
+Windows x64 avec Windows App Runtime 1.7. Extraire tout le ZIP et conserver les DLL,
+Resources et Licenses auprès de Cappella.exe. Le script Installer-runtime.ps1
+fourni installe le runtime WinUI. Les DLL Swift sont incluses dans l'archive.
 
 ## Compiler
 
-Installer Swift pour Windows, Visual Studio 2022 avec les outils C++ et un Windows SDK. Le portage a été compilé localement avec Swift 6.4.1 ; le workflow utilise Swift 6.2, comme les projections amont.
+Installer Swift pour Windows, Visual Studio 2022 avec les outils C++ et un Windows
+SDK. La CI utilise Swift 6.2 ; le développement local utilise aussi Swift 6.4.1.
 
-```powershell
-./scripts/prepare-windows.ps1
-swift test -c release -j 4
-./scripts/build-windows.ps1 -SkipPrepare
-./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture Tests/Fixtures/layout.detx
-```
+    .\scripts\build-windows.ps1
 
-La première compilation des projections prend plusieurs minutes. Les archives NuGet sont épinglées et vérifiées par SHA-256. `.windows/` et `.build/` sont des caches locaux ignorés par Git. Pour exécuter uniquement les tests du moteur sans installer WinUI, lancer `swift test` avant de préparer les projections.
+Puis, pour réutiliser les projections déjà générées :
 
-Résultat : `dist/Cappella-Windows-x64.zip`. Pour les releases GitHub : [RELEASES.md](RELEASES.md).
+    .\scripts\build-windows.ps1 -SkipPrepare
 
-## Périmètre actuel
+Ajouter -Configuration debug pour un binaire de développement. La configuration
+par défaut est release. Résultats : dist/Cappella-Windows-x64/Cappella.exe et
+dist/Cappella-Windows-x64.zip.
 
-Instances indépendantes, ouverture depuis l’Explorateur, ouverture/enregistrement DetX et projets JSON, confirmation des changements non enregistrés, quatre pistes de rythmo, édition directe au clic simple, signes/boucles/plans, navigation clavier, menus français, rôles et portraits, presse-papiers de phrases, export texte/CSV, thèmes clair/sombre et sauvegardes automatiques désactivables. Les sauvegardes de récupération sont séparées du fichier source, dans le dossier de données utilisateur `Cappella/Autosaves`.
+La préparation peut également être lancée séparément :
 
-Cette première version Windows doit encore passer les essais métier sur les médias réels. Le lecteur actuel sélectionne des flux audio séparés pour VO/VI ; le routage des canaux d’un flux PCM à quatre canaux et la combinaison de quatre flux mono ne sont pas encore équivalents au moteur Mac. La fenêtre de projection affiche pour l’instant la vidéo. L’enregistrement audio, la détection automatique des plans, certaines préférences vidéo restent à porter. Ne pas utiliser cette version comme remplacement validé du Mac en séance.
+    .\scripts\prepare-windows.ps1
 
+Les archives NuGet sont épinglées et vérifiées par SHA-256. Les caches .windows
+et .build restent locaux. Une configuration de projections modifiée déclenche
+leur régénération même avec -SkipPrepare. Le support manuel WinUI/WinAppSDK est
+resynchronisé avant compilation sans régénérer les projections.
 
-Chaque lancement ouvre une instance indépendante. Fichier > Ouvrir remplace le projet de la fenêtre actuelle avec la demande d'enregistrement habituelle. Fermer la fenêtre principale ferme aussi l'écran de contrôle et termine cette instance. Sur Mac, plusieurs processus indépendants restent possibles ; fermer la dernière fenêtre quitte l'application.
+Les [scripts et contrôles CI](SCRIPTS.md) et le [guide de release](RELEASES.md)
+décrivent les autres commandes.
+
+## Documents et réglages
+
+Ouvrir remplace le projet courant dans la même fenêtre après confirmation des
+modifications non enregistrées. Chaque lancement de l'exécutable peut créer une
+instance indépendante. Fermer la fenêtre principale ferme sa projection et termine
+cette instance.
+
+Les propriétés regroupent Fichier, Programme, Production, Description et Repères.
+La catégorie Fichier relie la vidéo, le son externe et la liste de rôles à importer.
+Les changements sont validés par OK ou Appliquer.
+
+Les préférences Général, Bande rythmo et Vidéo sont stockées dans
+%APPDATA%/Cappella/preferences.json, avec les proportions des panneaux.
+La sauvegarde automatique est désactivable et son intervalle est réglable.
+Ses copies de récupération sont stockées dans le dossier de données utilisateur
+Cappella/Autosaves, séparément du fichier original.
+
+## Audio et limites
+
+Le fichier audio externe remplace le son de la vidéo. Les AIFF/AIFC PCM pris en
+charge sont préparés en WAV ; quatre canaux sont séparés en deux paires stéréo VO
+et VI. Les fichiers source restent inchangés. Les dispositions de quatre flux mono
+et les formats compressés AIFC ne sont pas équivalents au moteur Mac.
+
+L'enregistrement microphone et la détection automatique des plans restent propres
+au Mac. La projection Windows affiche la vidéo ; elle ne reproduit pas encore
+l'ensemble de l'écran de contrôle Mac. La recherche et certains outils avancés
+restent moins complets sur Windows.
+
+Les dialogues internes suivent le thème de l'application ; les sélecteurs de
+fichiers Windows conservent le thème système. La validation des codecs, de la
+fluidité et des commutations VO/VI nécessite des médias réels.

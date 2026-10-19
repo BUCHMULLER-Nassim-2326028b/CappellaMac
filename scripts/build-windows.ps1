@@ -1,10 +1,11 @@
 ﻿param([ValidateSet('debug','release')][string]$Configuration = 'release', [switch]$SkipPrepare)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
+. "$PSScriptRoot/lib/WindowsBuild.ps1"
 Push-Location $repo
 try {
     # Skip preparation only when the generated bindings match the configuration.
-    # An unstamped cache (including old TabView bindings) is upgraded once.
+    # An unstamped cache is regenerated once.
     $configurationHash = (Get-FileHash -LiteralPath "$repo/windows/projections.json" -Algorithm SHA256).Hash
     $projectionStamp = Join-Path $repo '.windows/projections.config.sha256'
     $bindingsCurrent = (Test-Path -LiteralPath '.windows/Projections/Package.swift') -and
@@ -13,15 +14,7 @@ try {
     if (!$SkipPrepare -or !$bindingsCurrent) { & "$PSScriptRoot/prepare-windows.ps1" }
     if (!(Test-Path '.windows/Projections/Package.swift')) { throw 'Exécuter scripts/prepare-windows.ps1 avant de compiler.' }
     # Refresh handwritten runtime support even when generated bindings are cached.
-    foreach ($supportModule in @('WinUI', 'WinAppSDK')) {
-        Get-ChildItem -LiteralPath "$repo/windows/Support/$supportModule" -Filter '*.swift' -File | ForEach-Object {
-            $supportTarget = "$repo/.windows/Projections/Sources/$supportModule/Support/$($_.Name)"
-            if (!(Test-Path -LiteralPath $supportTarget)) { $supportTarget = "$repo/.windows/Projections/Sources/$supportModule/$($_.Name)" }
-            if (!(Test-Path -LiteralPath $supportTarget) -or [IO.File]::ReadAllText($_.FullName) -ne [IO.File]::ReadAllText($supportTarget)) {
-                Copy-Item -LiteralPath $_.FullName -Destination $supportTarget
-            }
-        }
-    }
+    Sync-WindowsRuntimeSupport -RepositoryRoot $repo -ProjectionRoot "$repo/.windows/Projections"
     # Windows PowerShell 5.1 turns redirected native stderr (including compiler
     # warnings) into error records. Judge the compiler by its exit code.
     $buildLog = Join-Path $repo ".build/windows-build-$Configuration.log"

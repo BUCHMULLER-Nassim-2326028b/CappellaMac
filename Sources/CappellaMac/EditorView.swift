@@ -74,6 +74,14 @@ struct EditorView: View {
                     .frame(minWidth: 310, idealWidth: geometry.size.width * 0.445, maxWidth: .infinity, maxHeight: .infinity)
                     videoPane.frame(minWidth: 350, maxWidth: .infinity, maxHeight: .infinity)
                 }
+                TimelineScroller(project: project, frame: frame, mediaDuration: transport.duration,
+                                 viewportWidth: geometry.size.width, pixelsPerSecond: pixelsPerSecond,
+                                 dark: appearance == "dark", onSeek: { target in
+                    if editingPhrase { finishPhrase() }
+                    transport.setRate(0)
+                    seek(to: target)
+                })
+                .frame(height: NSScroller.scrollerWidth(for: .small, scrollerStyle: .legacy))
                 RythmoView(project: project, frame: frame, pixelsPerSecond: pixelsPerSecond, fontName: fontName, fontSize: fontSize,
                            showGrid: showGrid, showDetection: showDetection, selectedSign: selectedSign, selectedTrack: currentTrack,
                            editingCue: editingPhrase ? selection : nil,

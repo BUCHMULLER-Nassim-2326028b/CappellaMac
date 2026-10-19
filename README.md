@@ -1,98 +1,63 @@
-# Cappella Swift - réécriture native visant la parité avec Cappella 3.7
+# Cappella
 
-Cappella dispose d’une interface native macOS (SwiftUI/AppKit) et d’un portage
-Windows en cours, utilisant WinUI 3 avec Swift-WinRT. Le moteur DetX et les règles
-d’édition sont partagés entre les deux plateformes.
-**La parité complète avec le programme d'origine n'est pas encore atteinte.**
-Sans les sources C++, il s'agit d'une réécriture Swift fondée sur les fichiers,
-ressources et comportements observés, pas d'une recompilation du code original.
+Réécriture native de Cappella en Swift : SwiftUI/AppKit sur Mac Apple Silicon,
+WinUI 3 avec Swift-WinRT sur Windows x64. Les deux interfaces partagent le moteur
+DetX et les règles d'édition de CappellaCore.
 
-## Espace de travail
+Le projet vise la fidélité au logiciel d'origine. Ses sources C++ ne sont pas
+disponibles et la parité complète reste à vérifier sur des projets et médias réels.
 
-Script à gauche, vidéo à droite, cartouche sous le script et quatre pistes de
-bande rythmo en bas. Sans vidéo, l'image de mire d'origine est affichée.
-Le curseur est centré, et le texte est étiré entre les signes de synchronisation.
-Voir la [référence visuelle](docs/REFERENCE_LAYOUT.md).
+## Utiliser l'application
 
-Les réglages passent par les menus : Contrôle, Position, Affichage, Audio,
-Rôles, Propriétés, Recherche et Préférences. Cliquer une fois sur une réplique dans la bande pour modifier directement
-son texte ; son menu contextuel permet de modifier le rôle et la piste. Glisser un signe dans la
-rythmo pour le déplacer. Les raccourcis de navigation ne capturent pas les
-espaces ni les flèches pendant la saisie de texte.
+L'espace de travail comprend le script à gauche, la vidéo à droite, le timecode
+sous le script et quatre pistes de bande rythmo en bas. Cliquer une fois sur une
+réplique pour saisir son texte ; le clic droit donne accès au rôle, à la piste et
+aux signes. La barre horizontale au-dessus de la rythmo permet de parcourir le projet.
+L'image et le son séparé se relient dans les propriétés du projet.
 
-Le timecode et la lecture fonctionnent aussi sans vidéo attachée.
-La lecture inverse du transport est réalisée par recherche d'images et reste
-à mesurer en conditions réelles. La piste VI externe suppose un fichier audio
-aligné sur le début du média ; il n'y a pas encore de compensation matérielle.
-
-## Documents et fonctions écrites
-
-- Ouverture/enregistrement de `.detx` directement depuis le menu Fichier.
-- Format de travail `.cappellaproject`, avec XML source conservé.
-- Dialogues à plusieurs séquences texte/lipsync ; préservation des types importés.
-- Création et déplacement des signes d'ouverture/fermeture, MPB, FVR, neutre et weuque.
-- Rôles, couleurs, portraits, descriptions, genre ; propriétés du programme et de production.
-- Navigation par phrase, rôle, signe, boucle et plan ; ajout de boucles et plans.
-- Recherche par rôle, casse et mots entiers ; vérification des bornes et chevauchements.
-- Décalage de la rythmo et changement du timestamp avec déplacement cohérent des signes.
-- Positions mémorisées ; script RTF et croisillé CSV.
-- Volume, sourdine, alternance VO/VI et fenêtre de contrôle indépendante.
-
-Cette liste décrit l'implémentation, pas une certification de comportement 1:1.
-Voir [PORTAGE.md](docs/PORTAGE.md) pour les limites, notamment sous-titres UER,
-enregistrement, matériel Orphée/FTDI et fidélité exacte du rendu.
-
-Le fichier DetX fourni ne déclare pas sa cadence. L'ouverture utilise 25 i/s par
-défaut ; ce choix doit être confirmé avec le média. Le fichier vidéo doit être
-relié manuellement : un chemin Windows n'est pas une URL macOS.
+Les documents s'ouvrent et s'enregistrent en DetX ou en format de travail
+.cappellaproject. Ouvrir un autre projet remplace le projet courant après la
+demande d'enregistrement. Plusieurs instances indépendantes peuvent être lancées.
 
 ## Compiler
 
-Sur un Mac Apple Silicon sous macOS 13 ou plus, avec Xcode installé et ouvert
-une fois, lancer à la racine :
+### macOS ARM64
 
-```sh
-swift test --arch arm64
-bash scripts/build-macos.sh
-open "dist/Cappella.app"
-```
+Sur un Mac Apple Silicon avec les outils de développement Apple :
 
-Le script produit `dist/Cappella.app` et `dist/Cappella-MacOS-arm64.zip`.
-La signature est ad hoc ; la notarisation et la signature Developer ID ne sont
-pas configurées.
+    bash scripts/build-macos.sh
+    open dist/Cappella.app
 
-Depuis Windows, pousser les sources sur GitHub déclenche le workflow
-`Native macOS ARM64`. Il compile et teste sur macOS 15, puis ouvre le même binaire
-sur macOS 26. Les tests de lancement exigent que l'éditeur apparaisse, avec et
-sans DetX. Des aperçus PNG sont proposés si la capture d'écran du runner est autorisée.
-Télécharger l'artefact `Cappella-MacOS-arm64` après réussite des deux jobs.
+Résultats : dist/Cappella.app et dist/Cappella-MacOS-arm64.zip.
+La cible minimale du package est macOS 13. La signature est ad hoc.
 
-## Validation
+### Windows x64
 
-Les tests du moteur partagé s’exécutent sur Mac et Windows. Les tests AppKit,
-AVFoundation et Finder restent exécutés sur les runners Mac. Le portage WinUI
-possède ses tests de documents et ses tests de lancement avec et sans DetX.
-La parité fonctionnelle Windows reste à compléter : voir [WINDOWS.md](docs/WINDOWS.md).
+Installer Swift pour Windows, Visual Studio 2022 avec les outils C++ et un Windows SDK :
 
-Pour tester un vrai fichier local sur Mac sans le publier :
+    .\scripts\build-windows.ps1
 
-```sh
-CAPPELLA_DETX_PATH="/chemin/exemple.detx" swift test --arch arm64
-```
+Pour les compilations suivantes, réutiliser les projections WinRT :
 
-L'export doit être vérifié dans Cappella Windows sur une copie, en particulier
-pour les signes, les positions mémorisées et les attributs de voix off.
+    .\scripts\build-windows.ps1 -SkipPrepare
 
-`assets/` contient l'installation Windows et reste ignoré par Git. La mire est
-copiée dans `packaging/Resources/` pour être incluse dans l'application native.
-Le logiciel natif ne charge ni l'exécutable Windows ni ses DLL.
+Ajouter -Configuration debug pour une compilation de développement.
+Les détails d'installation, les caches et les limites sont dans [Windows](docs/WINDOWS.md).
 
-## Windows et releases
+### GitHub Actions
 
-Le portage Windows utilise [Swift-WinRT](https://github.com/thebrowsercompany/swift-winrt)
-pour appeler WinUI 3 depuis Swift. Les projections sont régénérées localement
-avec `./scripts/prepare-windows.ps1`, puis `./scripts/build-windows.ps1 -SkipPrepare`
-produit l’archive Windows. Instructions et limites : [WINDOWS.md](docs/WINDOWS.md).
+Les workflows compilent et contrôlent les deux plateformes. Le binaire Mac
+construit sur macOS 15 est également ouvert sur macOS 26. Les archives se
+téléchargent dans les artefacts Cappella-MacOS-arm64 et Cappella-Windows-x64.
 
-Pour distribuer les deux plateformes : [créer une release GitHub](docs/RELEASES.md).
-Le workflow déclenché par un tag `v*` prépare un brouillon avec les archives Mac et Windows.
+## Développer et distribuer
+
+- [Architecture et limites](docs/ARCHITECTURE.md)
+- [Scripts de compilation et contrôles CI](docs/SCRIPTS.md)
+- [Version Windows](docs/WINDOWS.md)
+- [Créer une release GitHub](docs/RELEASES.md)
+- [Références du logiciel d'origine](docs/reference/README.md)
+
+Les caches .build et .windows, les archives dist, les sauvegardes backups et
+l'installation d'origine assets sont locaux et ignorés par Git. Les ressources
+distribuées et les licences tierces sont conservées dans packaging et windows.

@@ -6,61 +6,89 @@ import UWP
 import WindowsFoundation
 
 extension WindowsEditor {
-    func makeClockPanel() -> Border {
-        clockPanel.padding = Thickness(left: 7, top: 5, right: 7, bottom: 5)
-        clockPanel.borderBrush = ink(0x70777C)
-        clockPanel.borderThickness = Thickness(left: 0, top: 0.5, right: 0, bottom: 0)
-        let content = Grid()
-        let headerRow = RowDefinition(); headerRow.height = GridLength(value: 0, gridUnitType: .auto)
-        let detailsRow = RowDefinition(); detailsRow.height = GridLength(value: 1, gridUnitType: .star)
-        let footerRow = RowDefinition(); footerRow.height = GridLength(value: 18, gridUnitType: .pixel)
-        content.rowDefinitions.append(headerRow); content.rowDefinitions.append(detailsRow); content.rowDefinitions.append(footerRow)
-        let caption = label("timecode", size: 10, color: ink(0xFFFFFF))
-        caption.width = 52; caption.verticalAlignment = .bottom
-        caption.margin = Thickness(left: 0, top: 0, right: 0, bottom: 7)
-        timecode.fontFamily = FontFamily("Segoe UI")
-        timecode.fontWeight = FontWeights.light
-        let header = row([caption, timecode], spacing: 9)
-        header.tapped.addHandler { [weak self] _, _ in
-            Task { @MainActor [weak self] in await self?.goTimecode() }
-        }
-        content.children.append(header)
-        loopLabel.verticalAlignment = .top
-        loopLabel.margin = Thickness(left: 0, top: 3, right: 0, bottom: 0)
-        try? Grid.setRow(loopLabel, 1); content.children.append(loopLabel)
-        let footer = Grid()
-        for unit in [GridUnitType.star, .auto, .star] {
-            let column = ColumnDefinition(); column.width = GridLength(value: 1, gridUnitType: unit)
-            footer.columnDefinitions.append(column)
-        }
-        loopRange.verticalAlignment = .center; loopRange.textTrimming = .characterEllipsis
-        footer.children.append(loopRange)
-        for control in [vo, vi] {
-            control.fontSize = 10
-            control.minWidth = 0; control.minHeight = 0; control.width = 17; control.height = 18
-            control.padding = Thickness(); control.borderThickness = Thickness()
-            control.background = brush(0, 0, 0, alpha: 0)
-            control.borderBrush = brush(0, 0, 0, alpha: 0)
-            control.isTabStop = false
-            for key in ["ButtonBackgroundPointerOver", "ButtonBackgroundPressed", "ButtonBorderBrushPointerOver", "ButtonBorderBrushPressed"] {
-                _ = control.resources.insert(key, brush(0, 0, 0, alpha: 0))
+    func buildLayout() {
+        let menuRow = RowDefinition(); menuRow.height = GridLength(value: 0, gridUnitType: .auto)
+        let mainRow = RowDefinition(); mainRow.height = GridLength(value: 1, gridUnitType: .star)
+        let bandRow = RowDefinition(); bandRow.height = GridLength(value: max(120, self.document.preferences.bandHeight), gridUnitType: .pixel)
+        let dividerRow = RowDefinition(); dividerRow.height = GridLength(value: 6, gridUnitType: .pixel)
+        let scrollRow = RowDefinition(); scrollRow.height = GridLength(value: 16, gridUnitType: .pixel)
+        root.rowDefinitions.append(menuRow); root.rowDefinitions.append(mainRow); root.rowDefinitions.append(dividerRow)
+        root.rowDefinitions.append(scrollRow); root.rowDefinitions.append(bandRow)
+        installTimelineScrollbar()
+        try? Grid.setRow(timelineScrollbar, 3); root.children.append(timelineScrollbar)
+        let menus = makeMenu(); try? Grid.setRow(menus, 0); root.children.append(menus)
+        let main = Grid()
+        let storedFraction = WindowsSettings.number(forKey: "layout.windows.leftFraction")
+        let initialFraction = storedFraction.isFinite && storedFraction > 0 ? min(0.85, max(0.15, storedFraction)) : 0.445
+        let leftColumn = ColumnDefinition(); leftColumn.width = GridLength(value: initialFraction, gridUnitType: .star)
+        let dividerColumn = ColumnDefinition(); dividerColumn.width = GridLength(value: 6, gridUnitType: .pixel)
+        let rightColumn = ColumnDefinition(); rightColumn.width = GridLength(value: 1 - initialFraction, gridUnitType: .star)
+        main.columnDefinitions.append(leftColumn); main.columnDefinitions.append(dividerColumn); main.columnDefinitions.append(rightColumn)
+        // Retain these Swift projections in the drag callbacks. XAML retaining
+        // the native Grid does not retain its original Swift wrapper.
+        let verticalDivider = makeResizeHandle(vertical: true, position: { leftColumn.actualWidth }, change: { [main] value in
+            let available = max(1, main.actualWidth - 6), minimum = min(240, available * 0.4)
+            let fraction = min(available - minimum, max(minimum, value)) / available
+            leftColumn.width = GridLength(value: fraction, gridUnitType: .star)
+            rightColumn.width = GridLength(value: 1 - fraction, gridUnitType: .star)
+        }, finish: { [main, weak self] in
+            self?.perform {
+                try WindowsSettings.merge(["layout.windows.leftFraction": leftColumn.actualWidth / max(1, main.actualWidth - 6)])
             }
+        })
+        try? Grid.setColumn(verticalDivider, 1); main.children.append(verticalDivider)
+        let left = Grid()
+        let scriptRow = RowDefinition(); scriptRow.height = GridLength(value: 1, gridUnitType: .star)
+        let savedClockHeight = WindowsSettings.number(forKey: "layout.windows.clockHeight")
+        let clockRow = RowDefinition(); clockRow.height = GridLength(value: savedClockHeight.isFinite && savedClockHeight >= 76 ? savedClockHeight : 92, gridUnitType: .pixel)
+        let clockDividerRow = RowDefinition(); clockDividerRow.height = GridLength(value: 6, gridUnitType: .pixel)
+        left.rowDefinitions.append(scriptRow); left.rowDefinitions.append(clockDividerRow); left.rowDefinitions.append(clockRow)
+        let clockDivider = makeResizeHandle(vertical: false, position: { -clockRow.actualHeight }, change: { [left] value in
+            clockRow.height = GridLength(value: min(max(76, left.actualHeight - 100), max(76, -value)), gridUnitType: .pixel)
+        }, finish: { [weak self] in
+            self?.perform { try WindowsSettings.merge(["layout.windows.clockHeight": clockRow.actualHeight]) }
+        })
+        try? Grid.setRow(clockDivider, 1); left.children.append(clockDivider)
+        main.sizeChanged.addHandler { [weak left] _, _ in
+            guard let left, left.actualHeight > 0 else { return }
+            let maximum = max(76, left.actualHeight - 100)
+            if clockRow.actualHeight > maximum { clockRow.height = GridLength(value: maximum, gridUnitType: .pixel) }
         }
-        let switches = row([vo, vi], spacing: 3)
-        try? Grid.setColumn(switches, 1); footer.children.append(switches)
-        try? Grid.setRow(footer, 2); content.children.append(footer)
-        clockPanel.child = content
-        refreshClockStyle()
-        return clockPanel
-    }
-    func refreshClockStyle() {
-        clockPanel.background = ink(dark ? 0x171717 : 0x232B31)
-        timecode.foreground = ink(0xFFFFFF); loopLabel.foreground = ink(0xDDDDDD)
-        loopRange.foreground = ink(dark ? 0xB8C1C7 : 0x6E8796)
-        let muted = dark ? UInt32(0x919DA5) : UInt32(0x647785)
-        vo.foreground = ink(media.hasMedia && !media.usingVI ? 0xFFFFFF : muted)
-        vi.foreground = ink(media.hasMedia && media.usingVI ? 0xFFFFFF : muted)
-        vo.opacity = 1; vi.opacity = 1
+        let scroll = ScrollViewer(); scroll.content = script
+        script.spacing = 15; script.padding = Thickness(left: 8, top: 16, right: 8, bottom: 16)
+        left.children.append(scroll)
+        let clock = makeClockPanel()
+
+        try? Grid.setRow(clock, 2); left.children.append(clock)
+        main.children.append(left)
+        let videoPanel = Grid()
+        let mire = Image()
+        let path = resources.appendingPathComponent("Mire.jpg")
+        if FileManager.default.fileExists(atPath: path.path) { mire.source = BitmapImage(Uri(path.absoluteString)) }
+        mire.stretch = .uniformToFill; videoPanel.children.append(mire); previewImage = mire
+        videoView.areTransportControlsEnabled = false
+        try? videoView.setMediaPlayer(media.video)
+        videoPanel.children.append(videoView)
+        try? Grid.setColumn(videoPanel, 2); main.children.append(videoPanel)
+        try? Grid.setRow(main, 1); root.children.append(main)
+        band.renderTransform = bandTranslation
+        band.useLayoutRounding = false
+        bandRuler.renderTransform = rulerTranslation
+        bandRuler.isHitTestVisible = false
+        bandContainer.children.append(bandBackdrop)
+        bandContainer.children.append(bandRuler)
+        bandContainer.children.append(band)
+        bandOverlay.isHitTestVisible = false
+        bandContainer.children.append(bandOverlay)
+        bandContainer.children.append(editorLayer)
+        try? Grid.setRow(bandContainer, 4); root.children.append(bandContainer)
+        let bandDivider = makeResizeHandle(vertical: false, position: { -bandRow.actualHeight }, change: { [weak self] value in
+            guard let self else { return }
+            let height = min(max(120, root.actualHeight - 190), max(120, -value))
+            self.document.preferences.bandHeight = height; appliedBandHeight = height
+            bandRow.height = GridLength(value: height, gridUnitType: .pixel)
+        }, finish: { [weak self] in self?.savePreferences() })
+        try? Grid.setRow(bandDivider, 2); root.children.append(bandDivider)
     }
     func installWindowChrome() {
         let captionRow = RowDefinition(); captionRow.height = GridLength(value: 32, gridUnitType: .pixel)
@@ -111,13 +139,8 @@ extension WindowsEditor {
         let logo = resources.appendingPathComponent(dark ? "CappellaLogo_dark.png" : "CappellaLogo.png")
         if FileManager.default.fileExists(atPath: logo.path) { titleLogo.source = BitmapImage(Uri(logo.absoluteString)) }
     }
-    var hasOpenPopup: Bool {
-        guard let xamlRoot = root.xamlRoot,
-              let popups = try? VisualTreeHelper.getOpenPopupsForXamlRoot(xamlRoot) else { return false }
-        return popups.size > 0
-    }
     func fitBandHeight() {
-        guard root.actualHeight > 0, let row = root.rowDefinitions.getAt(3) else { return }
+        guard root.actualHeight > 0, let row = root.rowDefinitions.getAt(4) else { return }
         let height = min(max(120, root.actualHeight - 190), max(120, self.document.preferences.bandHeight))
         if height != appliedBandHeight {
             row.height = GridLength(value: height, gridUnitType: .pixel)

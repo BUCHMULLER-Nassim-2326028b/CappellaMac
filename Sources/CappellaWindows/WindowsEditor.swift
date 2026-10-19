@@ -4,7 +4,6 @@ import WinUI
 import WinAppSDK
 import UWP
 import WindowsFoundation
-import CWindowsInterop
 
 @MainActor
 final class WindowsEditor {
@@ -69,6 +68,11 @@ final class WindowsEditor {
     var bandState: WindowsBandState?
     var playbackFrame: Double?
     var lastAutosavePoll = Date.distantPast
+    let timelineScrollbar = ScrollBar()
+    var timelineScrollRevision = UInt64.max
+    var timelineScrollEnd = 0
+    var updatingTimelineScrollbar = false
+    var timelineScrollRangeCache: TimelineScrollRange?
     let bandContainer = Grid()
     let editorLayer = Canvas()
     let timecode = label("00:00:00:00", size: 28, color: ink(0xFFFFFF))
@@ -88,7 +92,6 @@ final class WindowsEditor {
     var changingText = false
     var dialogShowing = false
     var activeDialog: ContentDialog?
-    var lastTick = Date()
     var lastRenderUptime = ProcessInfo.processInfo.systemUptime
     let editorMeasurement = TextBlock()
     var textSelectionAnchor: (UUID, Int, Double)?
@@ -96,11 +99,8 @@ final class WindowsEditor {
     var dragMoved = false
     var pointerWasLeft = false
     var logicalFrame: Double?
-    var undoEditing = false
-    var serializedClipboard: Data?
     var projection: Window?
     var projectionVideo: MediaPlayerElement?
-    var lastSavedPreference = Date.distantPast
     var previewImage: Image?
     var status = label("")
     var dark: Bool { self.document.preferences.appearance == "dark" }
@@ -118,7 +118,7 @@ final class WindowsEditor {
         self.document.changed = { [weak self] in self?.refresh() }
         media.failed = { [weak self] message in Task { @MainActor in await self?.showError(message) } }
         root.previewKeyDown.addHandler { [weak self] _, args in self?.keyDown(args) }
-        bandContainer.sizeChanged.addHandler { [weak self] _, _ in self?.renderBand(); self?.updateTextEditor() }
+        bandContainer.sizeChanged.addHandler { [weak self] _, _ in self?.renderBand(); self?.updateTextEditor(); self?.refreshTimelineScrollbar() }
         bandContainer.pointerPressed.addHandler { [weak self] _, args in self?.pointerPressed(args) }
         bandContainer.pointerMoved.addHandler { [weak self] _, args in self?.pointerMoved(args) }
         bandContainer.pointerReleased.addHandler { [weak self] _, args in self?.pointerReleased(args) }
@@ -156,86 +156,6 @@ final class WindowsEditor {
         try? timer.start()
         refresh()
     }
-    func buildLayout() {
-        let menuRow = RowDefinition(); menuRow.height = GridLength(value: 0, gridUnitType: .auto)
-        let mainRow = RowDefinition(); mainRow.height = GridLength(value: 1, gridUnitType: .star)
-        let bandRow = RowDefinition(); bandRow.height = GridLength(value: max(120, self.document.preferences.bandHeight), gridUnitType: .pixel)
-        let dividerRow = RowDefinition(); dividerRow.height = GridLength(value: 6, gridUnitType: .pixel)
-        root.rowDefinitions.append(menuRow); root.rowDefinitions.append(mainRow); root.rowDefinitions.append(dividerRow); root.rowDefinitions.append(bandRow)
-        let menus = makeMenu(); try? Grid.setRow(menus, 0); root.children.append(menus)
-        let main = Grid()
-        let storedFraction = WindowsSettings.number(forKey: "layout.windows.leftFraction")
-        let initialFraction = storedFraction.isFinite && storedFraction > 0 ? min(0.85, max(0.15, storedFraction)) : 0.445
-        let leftColumn = ColumnDefinition(); leftColumn.width = GridLength(value: initialFraction, gridUnitType: .star)
-        let dividerColumn = ColumnDefinition(); dividerColumn.width = GridLength(value: 6, gridUnitType: .pixel)
-        let rightColumn = ColumnDefinition(); rightColumn.width = GridLength(value: 1 - initialFraction, gridUnitType: .star)
-        main.columnDefinitions.append(leftColumn); main.columnDefinitions.append(dividerColumn); main.columnDefinitions.append(rightColumn)
-        // Retain these Swift projections in the drag callbacks. XAML retaining
-        // the native Grid does not retain its original Swift wrapper.
-        let verticalDivider = makeResizeHandle(vertical: true, position: { leftColumn.actualWidth }, change: { [main] value in
-            let available = max(1, main.actualWidth - 6), minimum = min(240, available * 0.4)
-            let fraction = min(available - minimum, max(minimum, value)) / available
-            leftColumn.width = GridLength(value: fraction, gridUnitType: .star)
-            rightColumn.width = GridLength(value: 1 - fraction, gridUnitType: .star)
-        }, finish: { [main, weak self] in
-            self?.perform {
-                try WindowsSettings.merge(["layout.windows.leftFraction": leftColumn.actualWidth / max(1, main.actualWidth - 6)])
-            }
-        })
-        try? Grid.setColumn(verticalDivider, 1); main.children.append(verticalDivider)
-        let left = Grid()
-        let scriptRow = RowDefinition(); scriptRow.height = GridLength(value: 1, gridUnitType: .star)
-        let savedClockHeight = WindowsSettings.number(forKey: "layout.windows.clockHeight")
-        let clockRow = RowDefinition(); clockRow.height = GridLength(value: savedClockHeight.isFinite && savedClockHeight >= 76 ? savedClockHeight : 92, gridUnitType: .pixel)
-        let clockDividerRow = RowDefinition(); clockDividerRow.height = GridLength(value: 6, gridUnitType: .pixel)
-        left.rowDefinitions.append(scriptRow); left.rowDefinitions.append(clockDividerRow); left.rowDefinitions.append(clockRow)
-        let clockDivider = makeResizeHandle(vertical: false, position: { -clockRow.actualHeight }, change: { [left] value in
-            clockRow.height = GridLength(value: min(max(76, left.actualHeight - 100), max(76, -value)), gridUnitType: .pixel)
-        }, finish: { [weak self] in
-            self?.perform { try WindowsSettings.merge(["layout.windows.clockHeight": clockRow.actualHeight]) }
-        })
-        try? Grid.setRow(clockDivider, 1); left.children.append(clockDivider)
-        main.sizeChanged.addHandler { [weak left] _, _ in
-            guard let left, left.actualHeight > 0 else { return }
-            let maximum = max(76, left.actualHeight - 100)
-            if clockRow.actualHeight > maximum { clockRow.height = GridLength(value: maximum, gridUnitType: .pixel) }
-        }
-        let scroll = ScrollViewer(); scroll.content = script
-        script.spacing = 15; script.padding = Thickness(left: 8, top: 16, right: 8, bottom: 16)
-        left.children.append(scroll)
-        let clock = makeClockPanel()
-
-        try? Grid.setRow(clock, 2); left.children.append(clock)
-        main.children.append(left)
-        let videoPanel = Grid()
-        let mire = Image()
-        let path = resources.appendingPathComponent("Mire.jpg")
-        if FileManager.default.fileExists(atPath: path.path) { mire.source = BitmapImage(Uri(path.absoluteString)) }
-        mire.stretch = .uniformToFill; videoPanel.children.append(mire); previewImage = mire
-        videoView.areTransportControlsEnabled = false
-        try? videoView.setMediaPlayer(media.video)
-        videoPanel.children.append(videoView)
-        try? Grid.setColumn(videoPanel, 2); main.children.append(videoPanel)
-        try? Grid.setRow(main, 1); root.children.append(main)
-        band.renderTransform = bandTranslation
-        band.useLayoutRounding = false
-        bandRuler.renderTransform = rulerTranslation
-        bandRuler.isHitTestVisible = false
-        bandContainer.children.append(bandBackdrop)
-        bandContainer.children.append(bandRuler)
-        bandContainer.children.append(band)
-        bandOverlay.isHitTestVisible = false
-        bandContainer.children.append(bandOverlay)
-        bandContainer.children.append(editorLayer)
-        try? Grid.setRow(bandContainer, 3); root.children.append(bandContainer)
-        let bandDivider = makeResizeHandle(vertical: false, position: { -bandRow.actualHeight }, change: { [weak self] value in
-            guard let self else { return }
-            let height = min(max(120, root.actualHeight - 190), max(120, -value))
-            self.document.preferences.bandHeight = height; appliedBandHeight = height
-            bandRow.height = GridLength(value: height, gridUnitType: .pixel)
-        }, finish: { [weak self] in self?.savePreferences() })
-        try? Grid.setRow(bandDivider, 2); root.children.append(bandDivider)
-    }
     func refresh() {
         guard !isClosed else { return }
         refreshMenuChecks()
@@ -257,84 +177,8 @@ final class WindowsEditor {
         previewImage?.visibility = media.hasVideo ? .collapsed : .visible
         refreshScript(); refreshClock(); renderBand(); updateTextEditor()
     }
-    func refreshScript() {
-        if scriptRevision != self.document.revision {
-            let cues = self.document.project.cues.sorted { $0.start < $1.start }
-            let order = cues.map(\.id)
-            if order != scriptOrder {
-                script.children.clear(); scriptRows.removeAll(); scriptModels.removeAll(); scriptSelection = nil
-                for cue in cues {
-                    let header = label("", size: 11); header.fontFamily = FontFamily("Courier New")
-                    let text = label("", size: 12); text.fontFamily = FontFamily("Courier New"); text.textWrapping = .wrap
-                    let container = Border(); container.child = stack([header, text], spacing: 2)
-                    let id = cue.id
-                    container.tapped.addHandler { [weak self] _, _ in
-                        guard let self, let current = self.document.project.cues.first(where: { $0.id == id }) else { return }
-                        media.stop(); self.document.selection = current.id; self.document.track = current.track
-                        seek(current.start); refreshScript()
-                    }
-                    script.children.append(container); scriptRows[cue.id] = (container, header, text)
-                }
-                scriptOrder = order
-            }
-            let rolesChanged = scriptRoles != self.document.project.roles || scriptFPS != fps
-            let names = Dictionary(uniqueKeysWithValues: self.document.project.roles.map { ($0.id, $0.name) })
-            for cue in cues {
-                guard let row = scriptRows[cue.id], rolesChanged || scriptModels[cue.id] != cue else { continue }
-                let name = cue.roleID.flatMap { names[$0] } ?? "Sans rôle"
-                let header = Timecode.format(cue.start, fps: fps) + " — " + name + " :"
-                if row.header.text != header { row.header.text = header }
-                if row.text.text != cue.text { row.text.text = cue.text }
-            }
-            scriptModels = Dictionary(uniqueKeysWithValues: cues.map { ($0.id, $0) })
-            scriptRoles = self.document.project.roles; scriptFPS = fps
-            scriptRevision = self.document.revision
-        }
-        if scriptSelection != self.document.selection {
-            if let previous = scriptSelection { scriptRows[previous]?.border.background = nil }
-            if let current = self.document.selection { scriptRows[current]?.border.background = brush(0.2, 0.5, 1, alpha: 0.12) }
-            scriptSelection = self.document.selection
-        }
-    }
-    func refreshClock() {
-        let cadenceChanged = displayedFPS != fps
-        if displayedFrame != self.document.frame || displayedFPS != fps {
-            timecode.text = Timecode.format(self.document.frame, fps: fps)
-            displayedFrame = self.document.frame; displayedFPS = fps
-        }
-        if clockProjectRevision != self.document.revision {
-            clockLastCueEnd = self.document.project.cues.map(\.end).max() ?? 0
-            clockProjectRevision = self.document.revision
-        }
-        let loop = self.document.currentLoop
-        let loopEnd: Int?
-        if let loop {
-            let next = self.document.nextLoop(after: loop.frame)?.frame
-            let lastCue = max(clockLastCueEnd, loop.frame)
-            let mediaEnd = self.document.project.mediaStartFrame + Int(media.duration * Double(fps))
-            loopEnd = next ?? max(lastCue, mediaEnd)
-        } else { loopEnd = nil }
-        if displayedLoop != loop || displayedLoopEnd != loopEnd || cadenceChanged {
-            if let loop, let end = loopEnd {
-                let seconds = max(0, end - loop.frame) / max(1, fps)
-                loopLabel.text = "boucle  \(loop.label)       durée  \(seconds / 60) min \(seconds % 60) s"
-                loopRange.text = Timecode.format(loop.frame, fps: fps) + " → " + Timecode.format(end, fps: fps)
-                loopLabel.visibility = .visible; loopRange.visibility = .visible
-            } else {
-                loopLabel.text = ""; loopRange.text = ""
-                loopLabel.visibility = .collapsed; loopRange.visibility = .collapsed
-            }
-            displayedLoop = loop; displayedLoopEnd = loopEnd
-        }
-        if displayedVI != media.usingVI || displayedClockMedia != media.hasMedia {
-            refreshClockStyle()
-            displayedVI = media.usingVI; displayedClockMedia = media.hasMedia
-            refreshMenuChecks()
-        }
-    }
     func updatePlaybackRendering() {
         guard !isClosed else { return }
-        lastTick = Date()
         lastRenderUptime = ProcessInfo.processInfo.systemUptime
         timelineClock.reset()
         if media.rate != 0, renderingSubscription == nil {
@@ -366,6 +210,7 @@ final class WindowsEditor {
     }
     func pollAutosave() {
         guard !isClosed else { return }
+        if media.rate == 0 { refreshTimelineScrollbar() }
         let now = Date()
         if !dialogShowing && !isResizing && now.timeIntervalSince(lastAutosavePoll) >= 1 {
             lastAutosavePoll = now
@@ -384,84 +229,5 @@ final class WindowsEditor {
     func perform(_ operation: () throws -> Void) {
         do { try operation() } catch { Task { @MainActor in await self.showError(error.localizedDescription) } }
     }
-    func dialog(_ title: String, content: UIElement, primary: String = "OK", secondary: String = "", close: String = "", validatePrimary: (() -> Bool)? = nil, secondaryAction: (() -> Void)? = nil, contentWidth: Double? = nil) async -> ContentDialogResult {
-        guard !dialogShowing, !isClosed else { return .none }
-        dialogShowing = true; defer { dialogShowing = false }
-        let dialog = ContentDialog(); dialog.title = title; dialog.content = content
-        activeDialog = dialog
-        defer { if activeDialog === dialog { activeDialog = nil } }
-        dialog.requestedTheme = dark ? .dark : .light
-        if let contentWidth {
-            let width = contentWidth + 48
-            _ = dialog.resources.insert("ContentDialogMaxWidth", width)
-            // ContentDialog itself spans the XamlRoot for popup layout. Limit
-            // only its inner surface through the native theme resource.
-        }
-        dialog.xamlRoot = root.xamlRoot; dialog.primaryButtonText = primary
-        dialog.secondaryButtonText = secondary; dialog.closeButtonText = close
-        if let validatePrimary {
-            dialog.primaryButtonClick.addHandler { _, args in args?.cancel = !validatePrimary() }
-        }
-        if let secondaryAction {
-            dialog.secondaryButtonClick.addHandler { _, args in args?.cancel = true; secondaryAction() }
-        }
-        do { return try await dialog.showAsync().get() } catch { status.text = error.localizedDescription; return .none }
-    }
-    func mayReplace() async -> Bool {
-        guard self.document.dirty else { return true }
-        let result = await dialog("Enregistrer les modifications ?", content: label("Les modifications du projet courant seront perdues sans enregistrement."), primary: "Enregistrer", secondary: "Ne pas enregistrer", close: "Annuler")
-        if result == .primary { return await save() }
-        return result == .secondary
-    }
-    func attachPicker(_ picker: WinRTClass) throws {
-        var stage: Int32 = 0
-        let result = cappella_attach_picker(
-            UnsafeMutableRawPointer(picker.thisPtr.pUnk.borrow), window.appWindow.id.value, &stage)
-        guard result >= 0 else {
-            let code = String(format: "0x%08X", UInt32(bitPattern: result))
-            throw NSError(domain: "CappellaPicker", code: Int(result), userInfo: [
-                NSLocalizedDescriptionKey: "Sélecteur Windows : échec du rattachement (étape \(stage), \(code))."
-            ])
-        }
-    }
-    func pickFile(_ extensions: [String], onError: ((String) -> Void)? = nil) async -> URL? {
-        media.stop()
-        do {
-            let picker = FileOpenPicker(); for ext in extensions { picker.fileTypeFilter.append(ext) }; try attachPicker(picker)
-            guard let file = try await picker.pickSingleFileAsync().get() else { return nil }
-            return URL(fileURLWithPath: file.path)
-        } catch {
-            if let onError { onError(error.localizedDescription) }
-            else { await showError(error.localizedDescription) }
-            return nil
-        }
-    }
-    func open(_ url: URL, recovery: Bool = false) async {
-        if !recovery && self.document.url?.standardizedFileURL == url.standardizedFileURL { try? window.activate(); return }
-        do {
-            let project = try self.document.read(url)
-            guard await mayReplace() else { return }
-            unloadProjectMedia()
-            self.document.replace(with: project, url: recovery ? nil : url)
-            try loadProjectMedia()
-            media.seek(Double(self.document.frame - project.mediaStartFrame) / Double(fps))
-            refresh(); try window.activate()
-        } catch { await showError(error.localizedDescription) }
-    }
-    func save(as saveAs: Bool = false, copy: Bool = false) async -> Bool {
-        do {
-            var destination = !saveAs && !copy ? self.document.url : nil
-            if destination == nil {
-                let picker = FileSavePicker()
-                picker.fileTypeChoices.insert("Détection Cappella", [".detx"].toVector())
-                picker.fileTypeChoices.insert("Projet Cappella", [".cappellaproject"].toVector())
-                let name = self.document.url?.deletingPathExtension().lastPathComponent ?? self.document.project.title
-                picker.suggestedFileName = copy ? self.document.preferences.copyName(for: name) : name
-                try attachPicker(picker)
-                if let file = try await picker.pickSaveFileAsync().get() { destination = URL(fileURLWithPath: file.path) }
-            }
-            guard let destination else { return false }
-            try self.document.save(to: destination, copy: copy); return true
-        } catch { await showError(error.localizedDescription); return false }
-    }
+
 }

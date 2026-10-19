@@ -46,8 +46,7 @@ public struct ApplicationPreferences: Equatable {
         value.fontName = string("rythmo.font") ?? value.fontName
         value.fontSize = number("rythmo.fontSize", 28)
         #if os(Windows)
-        // Windows previously multiplied this value in the renderer. Keep the
-        // actual logical pixels/second explicit and independent of macOS defaults.
+        // Each platform stores its own horizontal scale in logical pixels/second.
         value.pixelsPerSecond = min(800, max(15, number("rythmo.windowsPixelsPerSecond", 320)))
         if ["Apple Chancery", "Snell Roundhand", "Segoe Script"].contains(value.fontName) {
             value.fontName = "Monotype Corsiva"
@@ -64,43 +63,36 @@ public struct ApplicationPreferences: Equatable {
         value.showDetection = bool("rythmo.detection", true)
         return value
     }
-    @discardableResult public func save(to defaults: UserDefaults = .standard) -> Bool {
-        defaults.set(checkUpdates, forKey: "general.checkUpdates")
-        defaults.set(prefixCopies, forKey: "general.prefixCopies")
-        defaults.set(appearance == "dark" ? "dark" : "light", forKey: "general.appearance")
-        defaults.set(automaticSave, forKey: "save.automatic")
-        defaults.set(min(120, max(1, saveInterval)), forKey: "save.intervalMinutes")
-        defaults.set(closeReactions, forKey: "rythmo.closeReactions")
-        defaults.set(showControlAtLaunch, forKey: "video.showControlAtLaunch")
-        defaults.set(min(1000, max(-1000, videoOffsetMilliseconds)), forKey: "video.offsetMilliseconds")
-        defaults.set(fontName, forKey: "rythmo.font")
-        defaults.set(fontSize, forKey: "rythmo.fontSize")
-        defaults.set(pixelsPerSecond, forKey: "rythmo.pixelsPerSecond")
+    private var storedValues: [String: Any] {
+        let values: [String: Any] = [
+            "general.checkUpdates": checkUpdates,
+            "general.prefixCopies": prefixCopies,
+            "general.appearance": appearance == "dark" ? "dark" : "light",
+            "save.automatic": automaticSave,
+            "save.intervalMinutes": min(120, max(1, saveInterval)),
+            "rythmo.closeReactions": closeReactions,
+            "video.showControlAtLaunch": showControlAtLaunch,
+            "video.offsetMilliseconds": min(1000, max(-1000, videoOffsetMilliseconds)),
+            "rythmo.font": fontName,
+            "rythmo.fontSize": fontSize,
+            "rythmo.pixelsPerSecond": pixelsPerSecond,
+            "rythmo.height": bandHeight,
+            "rythmo.grid": showGrid,
+            "rythmo.detection": showDetection
+        ]
         #if os(Windows)
-        defaults.set(pixelsPerSecond, forKey: "rythmo.windowsPixelsPerSecond")
+        var windowsValues = values
+        windowsValues["rythmo.windowsPixelsPerSecond"] = pixelsPerSecond
+        return windowsValues
+        #else
+        return values
         #endif
-        defaults.set(bandHeight, forKey: "rythmo.height")
-        defaults.set(showGrid, forKey: "rythmo.grid")
-        defaults.set(showDetection, forKey: "rythmo.detection")
+    }
+    @discardableResult public func save(to defaults: UserDefaults = .standard) -> Bool {
+        let values = storedValues
+        for (key, value) in values { defaults.set(value, forKey: key) }
         #if os(Windows)
         if defaults === UserDefaults.standard {
-            let values: [String: Any] = [
-                "general.checkUpdates": checkUpdates,
-                "general.prefixCopies": prefixCopies,
-                "general.appearance": appearance == "dark" ? "dark" : "light",
-                "save.automatic": automaticSave,
-                "save.intervalMinutes": min(120, max(1, saveInterval)),
-                "rythmo.closeReactions": closeReactions,
-                "video.showControlAtLaunch": showControlAtLaunch,
-                "video.offsetMilliseconds": min(1000, max(-1000, videoOffsetMilliseconds)),
-                "rythmo.font": fontName,
-                "rythmo.fontSize": fontSize,
-                "rythmo.pixelsPerSecond": pixelsPerSecond,
-                "rythmo.windowsPixelsPerSecond": pixelsPerSecond,
-                "rythmo.height": bandHeight,
-                "rythmo.grid": showGrid,
-                "rythmo.detection": showDetection
-            ]
             do { try WindowsSettings.merge(values) }
             catch { return false }
         }

@@ -1,6 +1,7 @@
 ﻿param([string]$CacheRoot = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
+. "$PSScriptRoot/lib/WindowsBuild.ps1"
 if (!$CacheRoot) { $CacheRoot = Join-Path $repo '.windows' }
 $CacheRoot = [IO.Path]::GetFullPath($CacheRoot)
 New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
@@ -42,11 +43,7 @@ $response = Join-Path $CacheRoot 'projections.rsp'
 & (Join-Path $folders['TheBrowserCompany.SwiftWinRT'] 'bin/swiftwinrt.exe') "@$response"
 if ($LASTEXITCODE -ne 0) { throw 'La génération Swift-WinRT a échoué.' }
 Copy-Item -LiteralPath (Join-Path $repo 'windows/Projections.Package.swift') -Destination (Join-Path $output 'Package.swift')
-foreach ($module in @('WinUI', 'WinAppSDK')) {
-    $destination = Join-Path $output "Sources/$module/Support"
-    New-Item -ItemType Directory -Force -Path $destination | Out-Null
-    Copy-Item -Path (Join-Path $repo "windows/Support/$module/*.swift") -Destination $destination
-}
+Sync-WindowsRuntimeSupport -RepositoryRoot $repo -ProjectionRoot $output
 $headers = Join-Path $output 'Sources/CWinAppSDK/include'
 New-Item -ItemType Directory -Force -Path $headers | Out-Null
 foreach ($name in @('MddBootstrap.h', 'WindowsAppSDK-VersionInfo.h')) {

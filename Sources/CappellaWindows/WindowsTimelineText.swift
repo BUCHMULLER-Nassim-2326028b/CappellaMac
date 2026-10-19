@@ -54,7 +54,7 @@ extension WindowsEditor {
         return low
     }
     func updateTextEditor(focus: Bool = false) {
-        guard !isClosed else { return }
+        guard !isClosed, !changingText else { return }
         guard self.document.editing, let cue = self.document.selectedCue else {
             try? caretTimer.stop()
             if textEditor != nil { editorLayer.children.clear(); textEditor = nil; textEditorCue = nil }
@@ -78,14 +78,23 @@ extension WindowsEditor {
             input.textChanged.addHandler { [weak self, weak input] _, _ in
                 guard let self, let input, !changingText, textEditor === input,
                       textEditorCue == self.document.selection, self.document.editing else { return }
-                let caret = scalarOffset(in: input.text, utf16: Int(input.selectionStart))
-                perform { try self.document.setText(input.text, caret: caret) }
+                let text = input.text
+                let caret = scalarOffset(in: text, utf16: Int(input.selectionStart))
+                // Publishing refreshes the whole editor synchronously. Never
+                // echo the model back into the native control during this edit.
+                changingText = true
+                perform { try self.document.setText(text, caret: caret) }
+                changingText = false
+                if let cue = self.document.selectedCue { positionTimelineInput(input, cue: cue) }
                 resetTimelineCaret()
             }
             input.selectionChanged.addHandler { [weak self, weak input] _, _ in
                 guard let self, let input, textEditor === input, !changingText else { return }
+                // WinUI may deliver SelectionChanged before TextChanged.
+                // In that case the native text is newer than the document.
+                guard let cue = self.document.selectedCue, input.text == cue.text else { return }
                 self.document.caret = scalarOffset(in: input.text, utf16: Int(input.selectionStart))
-                updateTextEditor(); resetTimelineCaret()
+                positionTimelineInput(input, cue: cue); resetTimelineCaret()
             }
             input.loaded.addHandler { [weak self, weak input] _, _ in
                 guard let self, let input, textEditor === input, self.document.editing, !dialogShowing else { return }
@@ -102,17 +111,34 @@ extension WindowsEditor {
         }
         guard let input = textEditor else { return }
         changingText = true
-        if input.text != cue.text { input.text = cue.text }
+        // While focused, the native input owns the text until TextChanged has
+        // published it. Layout/selection refreshes must not discard that text.
+        if input.focusState == .unfocused && input.text != cue.text { input.text = cue.text }
         if focus { try? input.select(Int32(utf16Offset(in: cue.text, scalar: self.document.caret)), 0) }
-        let offset = scalarOffset(in: cue.text, utf16: Int(input.selectionStart))
-        // A one-pixel input viewport keeps the native caret/IME candidate anchor
-        // next to the drawn caret without covering the timeline's hit targets.
-        try? Canvas.setLeft(input, timelineCaretX(cue, offset: offset))
-        try? Canvas.setTop(input, Double(cue.track) * bandContainer.actualHeight / 4)
-        input.width = 1; input.height = bandContainer.actualHeight / 4
+        positionTimelineInput(input, cue: cue)
         changingText = false
-        if focus { _ = try? input.focus(.programmatic) }
+        if focus {
+            _ = try? input.focus(.programmatic)
+            // Pointer-release and dialog-close processing can restore the old
+            // focus after this call. Reassert it once those events have finished.
+            DispatchQueue.main.async { [weak self, weak input] in
+                guard let self, let input, !isClosed, !dialogShowing,
+                      self.document.editing, textEditor === input,
+                      textEditorCue == self.document.selection else { return }
+                _ = try? input.focus(.programmatic); resetTimelineCaret()
+            }
+        }
         renderEditorAdornments()
+    }
+    func positionTimelineInput(_ input: TextBox, cue: Cue) {
+        let offset = scalarOffset(in: cue.text, utf16: Int(input.selectionStart))
+        let lane = max(1, bandContainer.actualHeight / 4)
+        // Keep the native input inside the visible timeline even when the
+        // stretched text's caret lies outside it. Offscreen controls lose focus.
+        let x = min(max(0, bandContainer.actualWidth - 2), max(0, timelineCaretX(cue, offset: offset)))
+        try? Canvas.setLeft(input, x)
+        try? Canvas.setTop(input, Double(cue.track) * lane)
+        input.width = 2; input.height = lane
     }
     func resetTimelineCaret() {
         caretVisible = true

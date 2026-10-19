@@ -136,7 +136,7 @@ extension WindowsEditor {
     ] }
     func togglePlay() { setRate(media.rate == 0 ? 1 : 0) }
     func setRate(_ rate: Double) {
-        self.document.finishEditing(); logicalFrame = Double(self.document.frame); lastTick = Date(); updateTextEditor(); perform { try media.setRate(rate) }
+        self.document.finishEditing(); logicalFrame = Double(self.document.frame); updateTextEditor(); perform { try media.setRate(rate) }
     }
     func navigate(_ kind: String, _ direction: Int) {
         media.stop(); if let frame = self.document.navigate(kind, direction) { seek(frame) }; updateTextEditor()
@@ -204,7 +204,13 @@ extension WindowsEditor {
     }
     func handleShortcut(key: Int, ctrl: Bool, alt: Bool, shift: Bool, isRepeat: Bool) -> Bool {
         guard !dialogShowing, !isClosed else { return false }
-        if timelineTextHasFocus && !ctrl && !alt && ![13, 27].contains(key) { return false }
+        if timelineTextHasFocus {
+            // AltGr is reported as Ctrl+Alt on Windows. Let native text services
+            // translate it, together with dead keys and text-editing shortcuts.
+            if ctrl && alt { return false }
+            if !ctrl && !alt && ![13, 27].contains(key) { return false }
+            if ctrl && !alt && [65, 67, 88, 86, 90, 89, 8, 46, 35, 36, 37, 39].contains(key) { return false }
+        }
         if ctrl {
             switch key {
             case 78: Task { await newProject() }
