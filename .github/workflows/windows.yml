@@ -41,8 +41,13 @@ jobs:
           ./scripts/check-windows-activation.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture Tests/Fixtures/layout.detx
           python scripts/make_load_fixture.py dist/load.detx --count 1000
           ./scripts/smoke-windows.ps1 -Executable dist/Cappella-Windows-x64/Cappella.exe -Fixture dist/load.detx -ExpectedCues 1000
+      - name: Build Windows installer
+        shell: pwsh
+        run: ./scripts/build-windows-installer.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: Cappella-Windows-x64
-          path: dist/Cappella-Windows-x64.zip
+          path: |
+            dist/Cappella-Windows-x64.zip
+            dist/Cappella-*-Windows-x64-Setup.exe
           if-no-files-found: error

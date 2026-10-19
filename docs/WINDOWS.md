@@ -3,6 +3,25 @@
 L'application utilise WinUI 3 depuis Swift avec Swift-WinRT. Le moteur CappellaCore
 est partagé avec le Mac ; SwiftUI et AppKit restent propres à macOS.
 
+## Installer Cappella
+
+Deux distributions sont conservées sur GitHub Releases :
+
+- **Setup** : Cappella-VERSION-Windows-x64-Setup.exe, assistant en français.
+  Il installe dans %LOCALAPPDATA%/Programs/Cappella, crée le raccourci du menu
+  Démarrer et propose celui du Bureau. Il ajoute Cappella aux applications
+  disponibles pour ouvrir les .detx et .cappellaproject, sans remplacer le choix
+  par défaut de Windows. La désinstallation se fait depuis les paramètres Windows.
+- **ZIP portable** : Cappella-Windows-x64.zip, à extraire ; il nécessite le runtime
+  installé séparément.
+
+Le Setup contient l'installateur Microsoft signé du Windows App Runtime 1.7 x64.
+Il vérifie la version nécessaire pour l'utilisateur courant et installe le runtime
+uniquement si elle manque. Le runtime et le script de préparation sont extraits
+temporairement, jamais copiés dans le dossier de Cappella. Une erreur de préparation
+interrompt l'installation et affiche un message. La désinstallation conserve les
+préférences et le runtime partagé avec d'autres applications.
+
 ## Lancer l'archive
 
 Windows x64 avec Windows App Runtime 1.7. Extraire tout le ZIP et conserver les DLL,
@@ -71,3 +90,23 @@ restent moins complets sur Windows.
 Les dialogues internes suivent le thème de l'application ; les sélecteurs de
 fichiers Windows conservent le thème système. La validation des codecs, de la
 fluidité et des commutations VO/VI nécessite des médias réels.
+
+## Construire le Setup
+
+Installer [Inno Setup 6](https://jrsoftware.org/isinfo.php), puis, après la compilation :
+
+    .\scripts\build-windows-installer.ps1 -Version 0.9.0-beta.1
+
+Cette commande réutilise dist/Cappella-Windows-x64 sans recompiler Swift. Elle
+télécharge le runtime Microsoft dans .windows/installer lors de la première
+utilisation, vérifie sa signature Authenticode et l'intègre au Setup.
+Le ZIP portable n'est pas modifié.
+
+La CI Windows construit les deux distributions. Pour une release, le numéro du
+Setup vient du tag vVERSION ; hors tag, il vient de packaging/Info.plist si
+-Version n'est pas précisé. Le compilateur Inno Setup est déjà présent sur
+l'image GitHub windows-2022. En local, -Compiler permet d'indiquer ISCC.exe.
+
+Le Setup n'est pas signé avec un certificat éditeur ; sa génération ne supprime
+pas les éventuels avertissements SmartScreen. Les contrôles CI actuels lancent
+l'application ; ils ne valident pas encore un cycle installation/désinstallation.

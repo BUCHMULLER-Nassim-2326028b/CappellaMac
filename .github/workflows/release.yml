@@ -24,11 +24,11 @@ jobs:
         with:
           name: Cappella-Windows-x64
           path: release
-      - name: Create draft with tested archives
+      - name: Create draft with application archives and installer
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cd release
-          sha256sum *.zip > SHA256SUMS.txt
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Cappella $RELEASE_TAG" ./*.zip SHA256SUMS.txt
+          sha256sum *.zip *.exe > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Cappella $RELEASE_TAG" ./*.zip ./*.exe SHA256SUMS.txt

@@ -10,11 +10,12 @@ de compilation restent scripts/build-macos.sh et scripts/build-windows.ps1.
 | build-macos.sh | Développement Mac et workflow macos.yml |
 | build-icons.swift | build-macos.sh : génération des icônes Mac |
 | build-windows.ps1 | Développement Windows et workflow windows.yml |
+| build-windows-installer.ps1 | Création du Setup Inno Setup à partir du binaire Windows existant ; développement et workflow windows.yml |
 | prepare-windows.ps1 | Préparation des projections ; également appelée par build-windows.ps1 si nécessaire |
 | lib/WindowsBuild.ps1 | Fonction commune de synchronisation du support WinUI/WinAppSDK, appelée par les deux scripts Windows |
 | build-windows-icons.ps1 | build-windows.ps1 : génération des icônes Windows |
 | embed-windows-resources.ps1 | build-windows.ps1 : ressources de l'exécutable |
-| windows/Installer-runtime.ps1 | Installation du runtime WinUI pour le développement et la CI (absent du ZIP) |
+| windows/Installer-runtime.ps1 | Installation du runtime WinUI pour le développement, la CI et le Setup (extrait temporairement, absent du ZIP et du dossier installé) |
 
 Les projections .windows sont générées à partir de windows/projections.json.
 Leur empreinte permet à -SkipPrepare de conserver un cache à jour.
