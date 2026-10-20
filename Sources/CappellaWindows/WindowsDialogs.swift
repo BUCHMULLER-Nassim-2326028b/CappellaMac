@@ -2,7 +2,7 @@ import Foundation
 import CappellaCore
 import UWP
 import WinUI
-import WindowsFoundation
+@_spi(WinRTInternal) import WindowsFoundation
 
 extension WindowsEditor {
     func dialog(_ title: String, content: UIElement, primary: String = "OK", secondary: String = "", close: String = "", validatePrimary: (() -> Bool)? = nil, secondaryAction: (() -> Void)? = nil, contentWidth: Double? = nil, defaultButton: ContentDialogButton = .none) async -> ContentDialogResult {
@@ -178,6 +178,16 @@ extension WindowsEditor {
     func markPosition() {
         perform { try self.document.commit { let count = $0.positions?.count ?? 0; if $0.positions == nil { $0.positions = [] }; $0.positions?.append(Marker(frame: self.document.frame, label: "Position \(count + 1)")) } }
     }
+    private func clipboardString(_ value: Any?) throws -> String {
+        if let text = value as? String { return text }
+        // Swift/WinRT boxes native strings as IInspectable on this code path.
+        // A direct "as? String" silently discarded the copied phrase.
+        if let boxed = value as? WindowsFoundation.IInspectable {
+            let property: __ABI_Windows_Foundation.IPropertyValue = try boxed.QueryInterface()
+            return try property.GetString()
+        }
+        throw ProjectError.invalid("Le presse-papiers ne contient pas une phrase Cappella valide.")
+    }
     var hasPhraseClipboard: Bool {
         guard let content = try? Clipboard.getContent() else { return false }
         return (try? content.contains(ProjectEditing.phraseClipboardType)) == true ||
@@ -198,19 +208,22 @@ extension WindowsEditor {
         } catch { Task { await showError(error.localizedDescription) } }
     }
     func pastePhrase() async {
-        guard !dialogShowing, !isClosed else { return }
+        guard !dialogShowing, !isClosed, !phrasePasteActive else { return }
+        phrasePasteActive = true; defer { phrasePasteActive = false }
         media.stop()
         self.document.finishEditing(); updateTextEditor()
-        let frame = self.document.frame, track = self.document.track
+        let frame = self.document.frame, track = self.document.track, identity = self.document.identity
         do {
             guard let clipboard = try Clipboard.getContent() else { return }
             let types = [ProjectEditing.phraseClipboardType, "org.cappella-rewrite.phrase"]
-            guard let type = types.first(where: { (try? clipboard.contains($0)) == true }),
-                  let value = try await clipboard.getDataAsync(type).get() as? String,
-                  let data = Data(base64Encoded: value) else { return }
+            guard let type = types.first(where: { (try? clipboard.contains($0)) == true }) else { return }
+            let value = try await clipboard.getDataAsync(type).get()
+            let text = try clipboardString(value)
+            guard let data = Data(base64Encoded: text) else { throw ProjectError.invalid("La phrase copiée est illisible.") }
             let cue = try JSONDecoder().decode(Cue.self, from: data)
+            guard !isClosed, self.document.identity == identity else { return }
             try ProjectEditing.validatePaste(cue, in: self.document.project, frame: frame, track: track)
-            guard let role = await chooseRole(preferred: cue.roleID), !isClosed else { return }
+            guard let role = await chooseRole(preferred: cue.roleID), !isClosed, self.document.identity == identity else { return }
             var pasted: Cue?
             try self.document.commit {
                 pasted = try ProjectEditing.paste(cue, into: &$0, frame: frame, track: track, roleID: role)

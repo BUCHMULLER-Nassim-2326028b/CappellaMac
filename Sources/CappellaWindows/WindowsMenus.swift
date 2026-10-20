@@ -194,6 +194,19 @@ extension WindowsEditor {
             try? menu.showAt(bandContainer, point); args.handled = true
             return
         }
+        if self.document.editing, self.document.selection == cue.id,
+           let input = textEditor, input.selectionLength > 0, sign == nil {
+            let textMenu = MenuFlyout()
+            textMenu.items.append(menuItem("Couper le texte") { [weak input] in try? input?.cutSelectionToClipboard() })
+            textMenu.items.append(menuItem("Copier le texte") { [weak input] in try? input?.copySelectionToClipboard() })
+            textMenu.items.append(menuItem("Coller du texte") { [weak input] in try? input?.pasteFromClipboard() })
+            textMenu.items.append(MenuFlyoutSeparator())
+            textMenu.items.append(asyncItem("Coller une phrase…") { [unowned self] in
+                media.stop(); self.document.selectTrack(clickedTrack); seek(target); await pastePhrase()
+            })
+            try? textMenu.showAt(bandContainer, point); args.handled = true
+            return
+        }
         self.document.selection = cue.id; self.document.track = cue.track; self.document.signSelection = sign?.id
         let menu = MenuFlyout()
         menu.items.append(menuItem("Supprimer la phrase") { [unowned self] in perform { try self.document.deletePhrase() } })

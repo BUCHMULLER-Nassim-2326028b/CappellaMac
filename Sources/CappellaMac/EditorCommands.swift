@@ -192,6 +192,10 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                 let alt = flags.contains(.option)
                 let shift = flags.contains(.shift)
                 let typing = self.window?.firstResponder is NSTextView
+                let timelineInput = self.window?.firstResponder as? DialogueTextEditor.FocusedTextView
+                let wholePhrase = !typing || timelineInput?.selectedRange().length == 0
+                let phraseOnClipboard = ctrl && !shift && event.keyCode == 9 &&
+                    NSPasteboard.general.availableType(from: [.init(ProjectEditing.phraseClipboardType), .init("org.cappella-rewrite.phrase")]) != nil
                 let key = event.charactersIgnoringModifiers ?? ""
                 var action: EditorAction?
                 if ctrl {
@@ -213,9 +217,9 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                         switch key.lowercased() {
                         case "z": action = shift ? .redo : .undo
                         case "y": action = .redo
-                        case "c" where !typing || ((self.window?.firstResponder as? DialogueTextEditor.FocusedTextView)?.selectedRange().length == 0): action = .copyPhrase
-                        case "x" where !typing || ((self.window?.firstResponder as? DialogueTextEditor.FocusedTextView)?.selectedRange().length == 0): action = .cutPhrase
-                        case "v" where !shift && (!typing || (self.window?.firstResponder is DialogueTextEditor.FocusedTextView && (NSPasteboard.general.data(forType: .init(ProjectEditing.phraseClipboardType)) != nil || NSPasteboard.general.data(forType: .init("org.cappella-rewrite.phrase")) != nil))): action = .pastePhrase
+                        case "c" where wholePhrase: action = .copyPhrase
+                        case "x" where wholePhrase: action = .cutPhrase
+                        case "v" where !shift && (!typing || (timelineInput != nil && phraseOnClipboard)): action = .pastePhrase
                         case "e": action = shift ? nil : .exportScript
                         case "r": action = .roles
                         case "f": action = .find

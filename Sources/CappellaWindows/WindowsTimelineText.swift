@@ -36,21 +36,35 @@ extension WindowsEditor {
         }.max() ?? Double(cue.start)
         return max(Double(cue.end), end)
     }
+    /// Native glyph rectangles account for ligatures, kerning and combining
+    /// marks. Subtracting the first rectangle cancels native horizontal scroll.
+    func timelinePrefixWidth(_ cue: Cue, offset: Int) -> Double {
+        let utf16Position = utf16Offset(in: cue.text, scalar: offset)
+        if let input = textEditor, textEditorCue == cue.id, input.text == cue.text, input.actualWidth > 0,
+           !cue.text.isEmpty,
+           let origin = try? input.getRectFromCharacterIndex(0, false) {
+            let end = utf16Position == cue.text.utf16.count
+            let character = end ? max(0, utf16Position - 1) : utf16Position
+            if let rect = try? input.getRectFromCharacterIndex(Int32(character), end), rect.height > 0 {
+                return max(0, Double(rect.x - origin.x))
+            }
+        }
+        let values = cue.text.unicodeScalars
+        let index = values.index(values.startIndex, offsetBy: min(max(0, offset), values.count))
+        return measureTimelineText(String(values[..<index]))
+    }
     func timelineCaretX(_ cue: Cue, offset: Int) -> Double {
         let anchors = cue.anchors, values = cue.text.unicodeScalars
         let offset = min(max(0, offset), values.count)
         let center = bandContainer.actualWidth / 2
         if cue.pendingEnd == true {
-            let caret = values.index(values.startIndex, offsetBy: offset)
             return center + Double(cue.start) * scale - bandDisplayFrame * scale
-                + measureTimelineText(String(values[..<caret]))
+                + timelinePrefixWidth(cue, offset: offset)
         }
         for (left, right) in zip(anchors, anchors.dropFirst()) where right.textOffset > left.textOffset && offset <= right.textOffset {
-            let start = values.index(values.startIndex, offsetBy: left.textOffset)
-            let end = values.index(values.startIndex, offsetBy: right.textOffset)
-            let caret = values.index(values.startIndex, offsetBy: max(left.textOffset, offset))
-            let whole = measureTimelineText(String(values[start..<end]))
-            let prefix = measureTimelineText(String(values[start..<caret]))
+            let base = timelinePrefixWidth(cue, offset: left.textOffset)
+            let whole = timelinePrefixWidth(cue, offset: right.textOffset) - base
+            let prefix = timelinePrefixWidth(cue, offset: max(left.textOffset, offset)) - base
             let ratio = whole > 0 ? prefix / whole : 0
             let frame = Double(left.frame) + Double(right.frame - left.frame) * ratio
             return center + (frame - bandDisplayFrame) * scale
@@ -58,13 +72,19 @@ extension WindowsEditor {
         return center + (Double(offset == 0 ? cue.start : cue.end) - bandDisplayFrame) * scale
     }
     func timelineOffset(_ cue: Cue, atX x: Double) -> Int {
-        var low = 0, high = cue.text.unicodeScalars.count
+        // Native text services place carets between graphemes, never in the
+        // middle of an emoji, surrogate pair or accented combining sequence.
+        var offsets = [0], scalar = 0
+        for character in cue.text { scalar += character.unicodeScalars.count; offsets.append(scalar) }
+        var low = 0, high = offsets.count - 1
         while low < high {
             let middle = low + (high - low) / 2
-            if timelineCaretX(cue, offset: middle) < x { low = middle + 1 } else { high = middle }
+            if timelineCaretX(cue, offset: offsets[middle]) < x { low = middle + 1 } else { high = middle }
         }
-        if low > 0, abs(timelineCaretX(cue, offset: low - 1) - x) < abs(timelineCaretX(cue, offset: low) - x) { return low - 1 }
-        return low
+        if low > 0, abs(timelineCaretX(cue, offset: offsets[low - 1]) - x) < abs(timelineCaretX(cue, offset: offsets[low]) - x) {
+            return offsets[low - 1]
+        }
+        return offsets[low]
     }
     func updateTextEditor(focus: Bool = false) {
         guard !isClosed, !changingText else { return }
@@ -79,7 +99,7 @@ extension WindowsEditor {
             let input = TextBox()
             // Only the timeline renderer is visible. Retain native text services
             // for Unicode/IME, accents, clipboard and keyboard text selection.
-            input.opacity = 0; input.isHitTestVisible = true
+            input.opacity = 0; input.isHitTestVisible = true; input.isTabStop = true
             input.fontFamily = FontFamily(fontFamily); input.fontStyle = .italic
             input.fontSize = self.document.preferences.fontSize
             input.background = brush(0, 0, 0, alpha: 0)
@@ -92,6 +112,7 @@ extension WindowsEditor {
                 guard let self, let input, !changingText, textEditor === input,
                       textEditorCue == self.document.selection, self.document.editing else { return }
                 let text = input.text
+                timelineSelectionOrigin = nil
                 let caret = scalarOffset(in: text, utf16: Int(input.selectionStart))
                 // Publishing refreshes the whole editor synchronously. Never
                 // echo the model back into the native control during this edit.
@@ -107,6 +128,7 @@ extension WindowsEditor {
                 // In that case the native text is newer than the document.
                 guard let cue = self.document.selectedCue, input.text == cue.text else { return }
                 self.document.caret = scalarOffset(in: input.text, utf16: Int(input.selectionStart))
+                if textSelectionAnchor == nil && input.selectionLength == 0 { timelineSelectionOrigin = nil }
                 positionTimelineInput(input, cue: cue); resetTimelineCaret()
             }
             input.loaded.addHandler { [weak self, weak input] _, _ in
@@ -115,6 +137,7 @@ extension WindowsEditor {
             }
             input.gotFocus.addHandler { [weak self] _, _ in self?.resetTimelineCaret() }
             input.lostFocus.addHandler { [weak self] _, _ in self?.renderEditorAdornments() }
+            timelineSelectionOrigin = nil
             textEditor = input; textEditorCue = cue.id
             editorLayer.children.append(input)
             editorAdornments.isHitTestVisible = false; editorLayer.children.append(editorAdornments)
@@ -143,15 +166,29 @@ extension WindowsEditor {
         }
         renderEditorAdornments()
     }
+    /// Pointer capture and XAML focus processing can run after PointerPressed.
+    /// Restore only focus, preserving the word/range that was just selected.
+    func focusTimelineInput(_ input: TextBox) {
+        guard !isClosed, !dialogShowing, self.document.editing, textEditor === input else { return }
+        _ = try? input.focus(.programmatic)
+        DispatchQueue.main.async { [weak self, weak input] in
+            guard let self, let input, !isClosed, !dialogShowing,
+                  self.document.editing, textEditor === input,
+                  textEditorCue == self.document.selection else { return }
+            _ = try? input.focus(.programmatic)
+            resetTimelineCaret()
+        }
+    }
     func positionTimelineInput(_ input: TextBox, cue: Cue) {
         let offset = scalarOffset(in: cue.text, utf16: Int(input.selectionStart))
         let lane = max(1, bandContainer.actualHeight / 4)
-        // Keep the native input inside the visible timeline even when the
-        // stretched text's caret lies outside it. Offscreen controls lose focus.
-        let x = min(max(0, bandContainer.actualWidth - 2), max(0, timelineCaretX(cue, offset: offset)))
+        // Keep a real, focusable input inside the lane, below the drawn text.
+        // It must not cover the word under the mouse or steal the second click.
+        let caretX = timelineCaretX(cue, offset: offset)
+        let x = min(max(0, bandContainer.actualWidth - 2), max(0, caretX))
         try? Canvas.setLeft(input, x)
-        try? Canvas.setTop(input, Double(cue.track) * lane)
-        input.width = 2; input.height = lane
+        try? Canvas.setTop(input, Double(cue.track + 1) * lane - 2)
+        input.width = 2; input.height = 2
     }
     func resetTimelineCaret() {
         caretVisible = true

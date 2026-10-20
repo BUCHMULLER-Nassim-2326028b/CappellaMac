@@ -5,6 +5,7 @@ import CappellaCore
 /// the same CappellaCore target used by the Mac application.
 final class WindowsDocument {
     private(set) var revision: UInt64 = 0
+    private(set) var identity = UUID()
     private var sortedLoops: [Marker] = []
     private var cachedDirty: Bool?
     var project = Project() {
@@ -57,6 +58,7 @@ final class WindowsDocument {
     var canRedo: Bool { history.canRedo }
 
     func replace(with next: Project, url: URL?) {
+        identity = UUID()
         project = ProjectEditing.normalized(next)
         saved = project; self.url = url; selection = nil; signSelection = nil
         track = 0; frame = project.lastPositionFrame ?? project.mediaStartFrame

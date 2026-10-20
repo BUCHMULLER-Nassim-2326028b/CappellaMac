@@ -29,8 +29,11 @@ public enum ProjectEditing {
     /// Checking here also protects both editors if the project changes while a
     /// role chooser is open. No existing phrase is shifted or shortened.
     public static func validatePaste(_ source: Cue, in project: Project, frame: Int, track: Int) throws {
-        guard (0..<4).contains(track), frame >= project.mediaStartFrame,
+        guard (0..<4).contains(track), frame >= max(0, project.mediaStartFrame),
               source.start >= 0, source.end > source.start else { throw ProjectError.invalid("Piste, position ou durée de collage invalide.") }
+        guard source.anchors.allSatisfy({ $0.frame >= source.start && $0.frame <= source.end }) else {
+            throw ProjectError.invalid("Les signes de la phrase à coller sont invalides.")
+        }
         let duration = source.end - source.start
         let (end, overflow) = frame.addingReportingOverflow(duration)
         guard !overflow else { throw ProjectError.invalid("Position de collage trop éloignée.") }
@@ -55,9 +58,6 @@ public enum ProjectEditing {
         var signs = source.anchors
         for index in signs.indices { signs[index].id = UUID(); signs[index].sourceIndex = nil; signs[index].frame += delta }
         cue.signs = signs
-        guard !project.cues.contains(where: { $0.track == track && $0.start < cue.end && $0.end > cue.start }) else {
-            throw ProjectError.invalid("La phrase chevauche une autre phrase.")
-        }
         var next = project; next.cues.append(cue); try next.validate(); project = next
         return cue
     }

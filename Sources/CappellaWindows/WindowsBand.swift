@@ -1,4 +1,5 @@
 import Foundation
+import WinSDK
 import CappellaCore
 import WinUI
 import WinAppSDK
@@ -8,8 +9,8 @@ import WindowsFoundation
 struct WindowsBandState: Equatable {
     var revision: UInt64
     var track: Int
-    var selection: UUID?
-    var sign: UUID?
+    var selection: Foundation.UUID?
+    var sign: Foundation.UUID?
     var editing: Bool
     var preferences: ApplicationPreferences
 }
@@ -89,7 +90,7 @@ extension WindowsEditor {
                 width: max(1, (timelineCueEndFrame(cue) - Double(cue.start)) * scale), height: height)
             bandCueViews[cue.id] = view
         }
-        var markerIDs = Set<UUID>()
+        var markerIDs = Set<Foundation.UUID>()
         if self.document.preferences.showDetection {
             let groups: [([Marker], Bool)] = [(self.document.project.shots, false), (self.document.project.loops, true)]
             for (markers, isLoop) in groups {
@@ -203,7 +204,7 @@ extension WindowsEditor {
         }
         return ["Apple Chancery", "Snell Roundhand", "Segoe Script"].contains(self.document.preferences.fontName) ? "Monotype Corsiva" : self.document.preferences.fontName
     }
-    func readingColor(_ roleID: UUID?) -> SolidColorBrush {
+    func readingColor(_ roleID: Foundation.UUID?) -> SolidColorBrush {
         let role = self.document.project.roles.first { $0.id == roleID }
         let palette: [UInt32] = [0x0070C0, 0xD52020, 0x008020, 0x8030A0, 0xBB6500, 0x008090]
         let stored = role?.hexColor.flatMap { UInt32($0.replacingOccurrences(of: "#", with: ""), radix: 16) }
@@ -224,22 +225,58 @@ extension WindowsEditor {
         guard let args, let point = try? args.getCurrentPoint(bandContainer), point.properties.isLeftButtonPressed else { return }
         let (cue, sign, _, _) = hit(point.position)
         dragMoved = false; pointerWasLeft = true
-        if let cue, let sign { dragSign = (cue.id, sign.id, sign.frame, Double(point.position.x)) }
-        else if let cue, self.document.editing, self.document.selection == cue.id, let input = textEditor {
+        if cue == nil { timelineLastClick = nil }
+        if let cue, let sign { timelineLastClick = nil; dragSign = (cue.id, sign.id, sign.frame, Double(point.position.x)) }
+        else if let cue {
+            media.stop()
+            if !self.document.editing || self.document.selection != cue.id {
+                self.document.beginEditing(cue, at: self.document.frame)
+                updateTextEditor(focus: true)
+            }
+            guard let input = textEditor else { return }
             let offset = timelineOffset(cue, atX: Double(point.position.x))
-            textSelectionAnchor = (cue.id, offset, Double(point.position.x))
-            try? input.select(Int32(utf16Offset(in: cue.text, scalar: offset)), 0)
-            _ = try? input.focus(.programmatic)
+            let now = ProcessInfo.processInfo.systemUptime
+            let x = Double(point.position.x), y = Double(point.position.y)
+            let dpi = max(1, root.xamlRoot?.rasterizationScale ?? 1)
+            let toleranceX = Double(GetSystemMetrics(Int32(SM_CXDOUBLECLK))) / (2 * dpi)
+            let toleranceY = Double(GetSystemMetrics(Int32(SM_CYDOUBLECLK))) / (2 * dpi)
+            let extending = GetKeyState(Int32(VK_SHIFT)) < 0
+            if !extending, let previous = timelineLastClick, previous.cue == cue.id,
+               now - previous.time <= Double(GetDoubleClickTime()) / 1000,
+               abs(x - previous.x) <= toleranceX, abs(y - previous.y) <= toleranceY {
+                timelineLastClick = nil
+                let word = DialogueTextSelection.wordRange(in: cue.text, at: offset)
+                timelineSelectionOrigin = word.lowerBound
+                textSelectionAnchor = (cue.id, word.lowerBound, x)
+                let a = utf16Offset(in: cue.text, scalar: word.lowerBound)
+                let b = utf16Offset(in: cue.text, scalar: word.upperBound)
+                try? input.select(Int32(a), Int32(b - a))
+                _ = try? bandContainer.capturePointer(args.pointer)
+                focusTimelineInput(input)
+                args.handled = true
+                return
+            }
+            timelineLastClick = (cue.id, now, x, y)
+            let anchor = extending ? (timelineSelectionOrigin ?? self.document.caret) : offset
+            timelineSelectionOrigin = anchor
+            textSelectionAnchor = (cue.id, anchor, Double(point.position.x))
+            let a = utf16Offset(in: cue.text, scalar: min(anchor, offset))
+            let b = utf16Offset(in: cue.text, scalar: max(anchor, offset))
+            try? input.select(Int32(a), Int32(b - a))
             _ = try? bandContainer.capturePointer(args.pointer)
+            focusTimelineInput(input)
             args.handled = true
         }
+    }
+    func cancelTimelinePointer() {
+        textSelectionAnchor = nil; dragSign = nil; dragMoved = false; pointerWasLeft = false
     }
     func pointerMoved(_ args: PointerRoutedEventArgs?) {
         guard let args, let point = try? args.getCurrentPoint(bandContainer) else { return }
         if let (cueID, anchor, startX) = textSelectionAnchor, point.properties.isLeftButtonPressed,
            let cue = self.document.selectedCue, cue.id == cueID, let input = textEditor {
             guard abs(Double(point.position.x) - startX) > 2 else { return }
-            dragMoved = true
+            dragMoved = true; timelineLastClick = nil
             let offset = timelineOffset(cue, atX: Double(point.position.x))
             let a = utf16Offset(in: cue.text, scalar: min(anchor, offset))
             let b = utf16Offset(in: cue.text, scalar: max(anchor, offset))
@@ -255,11 +292,13 @@ extension WindowsEditor {
         }
     }
     func pointerReleased(_ args: PointerRoutedEventArgs?) {
+        let selectedInput = textSelectionAnchor != nil ? textEditor : nil
         defer {
             if textSelectionAnchor != nil { try? bandContainer.releasePointerCaptures() }
             textSelectionAnchor = nil; dragSign = nil; dragMoved = false; pointerWasLeft = false
+            if let selectedInput { focusTimelineInput(selectedInput) }
         }
-        guard pointerWasLeft, !dragMoved, let args, let point = try? args.getCurrentPoint(bandContainer), !point.properties.isRightButtonPressed else { return }
+        guard pointerWasLeft, !dragMoved, textSelectionAnchor == nil, let args, let point = try? args.getCurrentPoint(bandContainer), !point.properties.isRightButtonPressed else { return }
         let (cue, _, track, target) = hit(point.position)
         media.stop()
         if let cue {

@@ -43,6 +43,45 @@ final class SharedEditingTests: XCTestCase {
         XCTAssertThrowsError(try ProjectEditing.paste(cue, into: &project, frame: 10, track: 0, roleID: cue.roleID))
         XCTAssertEqual(project, unchanged)
     }
+    func testPasteChecksAvailableSpaceAndUsesChosenRole() throws {
+        var project = example()
+        let role = Role(name: "Autre rôle")
+        project.roles.append(role)
+        let originalRole = project.roles[0].id
+        project.cues = [Cue(roleID: originalRole, start: 100, end: 150, text: "Occupé")]
+        let source = Cue(roleID: originalRole, start: 500, end: 550, text: "Copie")
+        let unchanged = project
+        XCTAssertThrowsError(try ProjectEditing.validatePaste(source, in: project, frame: 51, track: 0))
+        XCTAssertEqual(project, unchanged)
+        XCTAssertNoThrow(try ProjectEditing.validatePaste(source, in: project, frame: 50, track: 0))
+        let pasted = try ProjectEditing.paste(source, into: &project, frame: 50, track: 0, roleID: role.id)
+        XCTAssertEqual(pasted.roleID, role.id)
+        XCTAssertEqual(pasted.start, 50)
+        XCTAssertEqual(pasted.end, 100)
+        XCTAssertNotEqual(pasted.id, source.id)
+        XCTAssertEqual(project.cues.first?.text, "Occupé")
+    }
+    func testPreludeBecomesDefaultWithoutReplacingACustomFont() {
+        let name = "CappellaFontTest-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("Monotype Corsiva", forKey: "rythmo.font")
+        XCTAssertEqual(ApplicationPreferences.load(from: defaults).fontName, "PreludeFLF")
+        defaults.set("Times New Roman", forKey: "rythmo.font")
+        XCTAssertEqual(ApplicationPreferences.load(from: defaults).fontName, "Times New Roman")
+    }
+    func testDoubleClickWordSelectionPreservesAccentsAndGraphemes() {
+        let text = "Bonjour l’équipe 👩‍🚀"
+        let scalars = Array(text.unicodeScalars)
+        func selected(_ offset: Int) -> String {
+            let range = DialogueTextSelection.wordRange(in: text, at: offset)
+            return String(String.UnicodeScalarView(scalars[range]))
+        }
+        XCTAssertEqual(selected(2), "Bonjour")
+        XCTAssertEqual(selected(11), "l’équipe")
+        XCTAssertEqual(selected(scalars.count - 1), "👩‍🚀")
+        XCTAssertEqual(DialogueTextSelection.wordRange(in: "", at: 0), 0..<0)
+    }
     func testHistoryGroupsTypingAndCancellationRestoresRedo() {
         let original = example()
         var edited = original; edited.author = "A"

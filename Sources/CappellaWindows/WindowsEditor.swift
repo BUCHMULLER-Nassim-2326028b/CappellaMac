@@ -92,6 +92,9 @@ final class WindowsEditor {
     var textEditorCue: UUID?
     var pendingReaction: UUID?
     var changingText = false
+    var phrasePasteActive = false
+    var timelineSelectionOrigin: Int?
+    var timelineLastClick: (cue: Foundation.UUID, time: Double, x: Double, y: Double)?
     var dialogShowing = false
     var activeDialog: ContentDialog?
     var lastRenderUptime = ProcessInfo.processInfo.systemUptime
@@ -126,6 +129,8 @@ final class WindowsEditor {
         bandContainer.pointerMoved.addHandler { [weak self] _, args in self?.pointerMoved(args) }
         bandContainer.pointerWheelChanged.addHandler { [weak self] _, args in self?.scrollTimeline(args) }
         bandContainer.pointerReleased.addHandler { [weak self] _, args in self?.pointerReleased(args) }
+        bandContainer.pointerCanceled.addHandler { [weak self] _, _ in self?.cancelTimelinePointer() }
+        bandContainer.pointerCaptureLost.addHandler { [weak self] _, _ in self?.cancelTimelinePointer() }
         bandContainer.rightTapped.addHandler { [weak self] _, args in self?.contextMenu(args) }
         vo.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = false; media.applyAudio(); refreshClock() }
         vi.click.addHandler { [weak self] _, _ in guard let self else { return }; media.usingVI = true; media.applyAudio(); refreshClock() }

@@ -118,3 +118,21 @@ Les exports doivent être relus dans le Cappella d'origine sur des copies.
 
 Les [contrôles automatisés](SCRIPTS.md) vérifient le modèle, la saisie native et
 l'ouverture des fenêtres. Ils ne remplacent pas une validation en séance.
+
+La police par défaut de la bande est PreludeFLF (variante italique), embarquée
+dans les ressources des distributions Mac et Windows. macOS l'enregistre pour le
+processus, WinUI la charge depuis les ressources de l'application. Les anciennes
+polices par défaut sont migrées une fois ; les autres choix personnalisés restent
+conservés. Les mesures, le texte et le curseur utilisent la même face.
+
+Le collage de phrase propose le rôle et contrôle l'espace sur la piste demandée
+avant ce choix, puis à l'insertion. La destination reste celle du lancement de la
+commande ; aucun chevauchement n'est écrasé. Les frontières jointives et le passage
+à travers une boucle sont autorisés. Une sélection de texte conserve les commandes
+natives de copie/coupe ; un presse-papiers de phrase déclenche le collage avec rôle.
+
+Sur Windows, le champ natif invisible reste focusable et ne recouvre pas le texte
+dessiné. Le relâchement de la souris restaure uniquement son focus, sans réduire
+la sélection à un curseur. Le double-clic utilise le délai et la zone de tolérance
+Windows pour sélectionner le mot ; les limites de caractères composés sont
+conservées. Le clic simple continue d'ouvrir directement la saisie.

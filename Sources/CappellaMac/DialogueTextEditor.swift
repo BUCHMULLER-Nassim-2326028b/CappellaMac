@@ -1,20 +1,20 @@
 import SwiftUI
 import AppKit
-import CappellaCore
+import CoreText
 
 /// Native input on the band: keep selection/IME/undo in NSTextView, and update
 /// the model only for actual edits, never by rewriting the string every frame.
 struct DialogueTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var caret: Int
-    var fontName = ApplicationPreferences.defaultFontName
+    var fontName = TimelineFont.defaultFontName
     var fontSize = 28.0
     var underlined = false
     var menuProvider: (() -> NSMenu?)? = nil
 
     /// Measure the same font used by NSTextView, including space for its caret.
     /// The band editor grows with the text, independently of cue duration.
-    static func fittingWidth(_ text: String, fontName: String = ApplicationPreferences.defaultFontName, fontSize: Double = 28) -> CGFloat {
+    static func fittingWidth(_ text: String, fontName: String = TimelineFont.defaultFontName, fontSize: Double = 28) -> CGFloat {
         let font = TimelineFont.font(name: fontName, size: fontSize)
         let lines = text.components(separatedBy: .newlines)
         let width = lines.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
@@ -31,7 +31,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         view.isEditable = true; view.isSelectable = true; view.isRichText = false; view.allowsUndo = true
         view.font = TimelineFont.font(name: fontName, size: fontSize)
         view.backgroundColor = .black; view.textColor = .white; view.insertionPointColor = .white
-        view.textContainerInset = NSSize(width: 2, height: 0)
+        view.textContainerInset = .zero
         view.isAutomaticQuoteSubstitutionEnabled = false; view.isAutomaticDashSubstitutionEnabled = false
         view.isVerticallyResizable = false; view.isHorizontallyResizable = true
         view.autoresizingMask = []
@@ -98,7 +98,10 @@ struct DialogueTextEditor: NSViewRepresentable {
             textStorage?.addAttribute(.underlineStyle, value: style, range: NSRange(location: 0, length: string.utf16.count))
         }
         var menuProvider: (() -> NSMenu?)?
-        override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() ?? super.menu(for: event) }
+        override func menu(for event: NSEvent) -> NSMenu? {
+            if selectedRange().length > 0 { return super.menu(for: event) }
+            return menuProvider?() ?? super.menu(for: event)
+        }
         private var pendingFocus = true
         private var awaitingSheetEnd = false
         private var focusScheduled = false
@@ -140,5 +143,25 @@ struct DialogueTextEditor: NSViewRepresentable {
         }
         override func layout() { super.layout(); requestInitialFocus() }
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+    }
+}
+
+enum TimelineFont {
+    static let defaultFontName = "PreludeFLF"
+    static func register() {
+        let packaged = Bundle.main.resourceURL
+        let development = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("packaging/Resources")
+        for file in ["PreludeFLF.ttf", "PreludeFLF-Italic.ttf", "PreludeFLF-Bold.ttf", "PreludeFLF-BoldItalic.ttf"] {
+            let candidates = [packaged?.appendingPathComponent(file), development.appendingPathComponent(file)].compactMap { $0 }
+            if let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
+        }
+    }
+    static func faceName(_ name: String) -> String {
+        name == defaultFontName ? "PreludeFLF-Italic" : name
+    }
+    static func font(name: String, size: Double) -> NSFont {
+        NSFont(name: faceName(name), size: CGFloat(size)) ?? .systemFont(ofSize: CGFloat(size))
     }
 }

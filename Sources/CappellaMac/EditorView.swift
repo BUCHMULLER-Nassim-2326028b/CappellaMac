@@ -243,7 +243,7 @@ struct EditorView: View {
             let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
             let left = max(0, geometry.size.width / 2 + CGFloat(cue.start - frame) * scale)
             let width = DialogueTextEditor.fittingWidth(cue.text, fontName: fontName, fontSize: fontSize)
-            let textScale: CGFloat = cue.pendingEnd == true ? 1 : max(1, CGFloat(cue.end - cue.start) * scale) / width
+            let textScale: CGFloat = cue.pendingEnd == true ? 1 : max(1, CGFloat(cue.end - cue.start) * scale) / max(1, width - 8)
             DialogueTextEditor(text: Binding(get: { selectedCue?.text ?? "" }, set: { value in
                 mutateSelected { $0.editText(value) }
             }), caret: $caret, fontName: fontName, fontSize: fontSize, underlined: cue.voice == "off", menuProvider: { phraseContextMenu(cue.id, nil) })
