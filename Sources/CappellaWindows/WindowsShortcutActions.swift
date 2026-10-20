@@ -19,10 +19,7 @@ extension WindowsEditor {
                 var signs = cue.anchors
                 guard let index = signs.firstIndex(where: { $0.id == id }) else { return }
                 if textAnchor {
-                    guard index > 0, index < signs.count - 1 else { return }
-                    signs[index].textOffset = min(signs[index + 1].textOffset,
-                        max(signs[index - 1].textOffset, signs[index].textOffset + delta))
-                    cue.signs = signs
+                    Timeline.shiftTextAnchor(in: &cue, id: id, by: delta)
                 } else { Timeline.moveSign(in: &cue, id: id, to: signs[index].frame + delta) }
             }
         }
@@ -48,7 +45,12 @@ extension WindowsEditor {
             await newPhrase(edit: false, text: text)
             if self.document.selectedCue?.text == text {
                 pendingReaction = self.document.preferences.closeReactions ? nil : self.document.selection
-                if self.document.preferences.closeReactions { self.document.finishEditing(); refresh() }
+                if self.document.preferences.closeReactions {
+                    if let cue = self.document.selectedCue {
+                        perform { try self.document.commit { try ProjectEditing.finalizePhrase(in: &$0, id: cue.id, frame: cue.end) } }
+                    }
+                    self.document.finishEditing(); refresh()
+                }
             }
         }
     }

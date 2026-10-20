@@ -77,7 +77,7 @@ extension WindowsEditor {
         // nothing already visible is periodically destroyed and measured again.
         let from = position - width * 1.5 / scale, to = position + width * 1.5 / scale
         let cues = self.document.project.cues.filter {
-            (0..<4).contains($0.track) && Double($0.end) >= from && Double($0.start) <= to
+            (0..<4).contains($0.track) && timelineCueEndFrame($0) >= from && Double($0.start) <= to
         }
         let cueIDs = Set(cues.map(\.id))
         for id in Array(bandCueViews.keys) where !cueIDs.contains(id) {
@@ -86,7 +86,7 @@ extension WindowsEditor {
         for cue in cues where bandCueViews[cue.id] == nil {
             let view = makeBandCue(cue, lane: lane)
             place(view, on: band, x: center + Double(cue.start - bandOriginFrame) * scale, y: 0,
-                width: max(1, Double(cue.end - cue.start) * scale), height: height)
+                width: max(1, (timelineCueEndFrame(cue) - Double(cue.start)) * scale), height: height)
             bandCueViews[cue.id] = view
         }
         var markerIDs = Set<UUID>()
@@ -135,7 +135,7 @@ extension WindowsEditor {
         }
         do { // Draw the same stretched glyphs during reading and editing.
             let color = readingColor(cue.roleID), font = FontFamily(fontFamily)
-            for segment in Timeline.segments(cue) {
+            for segment in Timeline.segments(cue, editing: self.document.editing && self.document.selection == cue.id) {
                 let textWidth = Double(segment.end - segment.start) * scale
                 guard textWidth > 0 else { continue }
                 let text = label(segment.text, size: self.document.preferences.fontSize, color: color)
@@ -144,14 +144,14 @@ extension WindowsEditor {
                 try? text.measure(uiSize(width: 100_000, height: lane))
                 let naturalWidth = Double(text.desiredSize.width), naturalHeight = Double(text.desiredSize.height)
                 guard naturalWidth > 0 else { continue }
-                let transform = CompositeTransform(); transform.scaleX = textWidth / naturalWidth
+                let transform = CompositeTransform(); transform.scaleX = segment.naturalWidth ? 1 : textWidth / naturalWidth
                 text.renderTransform = transform; text.protectedCursor = bandTextCursor
                 place(text, on: view, x: Double(segment.start - cue.start) * scale,
                     y: y + max(0, (lane - naturalHeight) / 2), width: naturalWidth, height: naturalHeight)
             }
         }
         if self.document.preferences.showGrid {
-            for sign in cue.anchors {
+            for sign in cue.visibleAnchors {
                 let x = Double(sign.frame - cue.start) * scale
                 let color = sign.kind.hasPrefix("in_") ? ink(0x00D800) : sign.kind.hasPrefix("out_") ? ink(0xED1515) : ink(dark ? 0xFFFFFF : 0x111111)
                 let mark = label(sign.kind.hasPrefix("in_") || sign.kind.hasPrefix("out_") ? "\u{2B06}" : "\u{2502}", size: 18, color: color)
@@ -198,7 +198,10 @@ extension WindowsEditor {
         place(ruler, on: bandRuler, x: -margin, y: 0, width: width + 2 * margin, height: height)
     }
     var fontFamily: String {
-        ["Apple Chancery", "Snell Roundhand", "Segoe Script"].contains(self.document.preferences.fontName) ? "Monotype Corsiva" : self.document.preferences.fontName
+        if self.document.preferences.fontName == ApplicationPreferences.defaultFontName {
+            return "ms-appx:///Resources/PreludeFLF-Italic.ttf#PreludeFLF"
+        }
+        return ["Apple Chancery", "Snell Roundhand", "Segoe Script"].contains(self.document.preferences.fontName) ? "Monotype Corsiva" : self.document.preferences.fontName
     }
     func readingColor(_ roleID: UUID?) -> SolidColorBrush {
         let role = self.document.project.roles.first { $0.id == roleID }
@@ -213,8 +216,8 @@ extension WindowsEditor {
         let lane = max(1, bandContainer.actualHeight / 4)
         let track = min(3, max(0, Int(Double(point.y) / lane)))
         let target = Int((bandDisplayFrame + (Double(point.x) - bandContainer.actualWidth / 2) / scale).rounded())
-        let cue = self.document.project.cues.last { $0.track == track && $0.start <= target && $0.end >= target }
-        let sign = cue?.anchors.first { abs(Double($0.frame - target) * scale) < 7 && Double(point.y) >= Double(track + 1) * lane - 23 }
+        let cue = self.document.project.cues.last { $0.track == track && $0.start <= target && timelineCueEndFrame($0) >= Double(target) }
+        let sign = cue?.visibleAnchors.first { abs(Double($0.frame - target) * scale) < 7 && Double(point.y) >= Double(track + 1) * lane - 23 }
         return (cue, sign, track, target)
     }
     func pointerPressed(_ args: PointerRoutedEventArgs?) {

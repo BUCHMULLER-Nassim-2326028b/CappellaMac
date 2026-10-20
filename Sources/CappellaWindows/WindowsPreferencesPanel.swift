@@ -28,7 +28,7 @@ extension WindowsEditor {
             ])
         ], spacing: 20)
         let closeReactions = check("Fermer automatiquement les réacs", draft.closeReactions)
-        let font = textField(fontFamily), size = textField(String(Int(draft.fontSize)))
+        let font = textField(draft.fontName), size = textField(String(Int(draft.fontSize)))
         let speed = textField(String(Int(draft.pixelsPerSecond))), height = textField(String(Int(draft.bandHeight)))
         let grid = check("Grille et signes", draft.showGrid), detection = check("Détection", draft.showDetection)
         let band = stack([
@@ -53,13 +53,10 @@ extension WindowsEditor {
         let categories = dialogCategories([("Général", general), ("Bande rythmo", band), ("Vidéo", video)])
         let errorText = dialogError()
         func apply() -> Bool {
-            guard let minutes = Int(interval.text), (1...120).contains(minutes),
-                  let fontSize = Double(size.text), fontSize.isFinite, (16...42).contains(fontSize),
-                  let pixels = Double(speed.text), pixels.isFinite, (15...800).contains(pixels),
-                  let bandHeight = Double(height.text), bandHeight.isFinite, bandHeight >= 120,
-                  let delay = Double(offset.text), delay.isFinite, (-1000...1000).contains(delay),
-                  !font.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                errorText.text = "Vérifiez les valeurs : intervalle 1–120 min, taille 16–42, échelle 15–800 px/s, hauteur ≥ 120 px, décalage ±1000 ms."
+            guard let minutes = Int(interval.text), let fontSize = Double(size.text),
+                  let pixels = Double(speed.text), let bandHeight = Double(height.text),
+                  let delay = Double(offset.text) else {
+                errorText.text = "Saisir des valeurs numériques valides."
                 return false
             }
             draft.appearance = theme.selectedIndex == 1 ? "dark" : "light"
@@ -67,9 +64,10 @@ extension WindowsEditor {
             draft.automaticSave = automatic.isChecked ?? false; draft.saveInterval = minutes
             draft.closeReactions = closeReactions.isChecked ?? false
             draft.fontName = font.text; draft.fontSize = fontSize; draft.pixelsPerSecond = pixels
-            draft.bandHeight = min(max(120, root.actualHeight - 190), bandHeight)
+            draft.bandHeight = bandHeight
             draft.showGrid = grid.isChecked ?? true; draft.showDetection = detection.isChecked ?? true
             draft.showControlAtLaunch = control.isChecked ?? false; draft.videoOffsetMilliseconds = delay
+            do { try draft.validate() } catch { errorText.text = error.localizedDescription; return false }
             guard draft.save() else {
                 errorText.text = "Impossible d'enregistrer les préférences dans " + WindowsSettings.fileURL.path
                 return false

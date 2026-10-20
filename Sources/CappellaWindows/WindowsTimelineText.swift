@@ -28,10 +28,23 @@ extension WindowsEditor {
         try? editorMeasurement.measure(uiSize(width: 100_000, height: 1000))
         return Double(editorMeasurement.desiredSize.width)
     }
+    func timelineCueEndFrame(_ cue: Cue) -> Double {
+        let editing = self.document.editing && self.document.selection == cue.id
+        guard cue.pendingEnd == true else { return Double(cue.end) }
+        let end = Timeline.segments(cue, editing: editing).map { segment in
+            Double(segment.start) + (segment.naturalWidth ? measureTimelineText(segment.text) / scale : Double(segment.end - segment.start))
+        }.max() ?? Double(cue.start)
+        return max(Double(cue.end), end)
+    }
     func timelineCaretX(_ cue: Cue, offset: Int) -> Double {
         let anchors = cue.anchors, values = cue.text.unicodeScalars
         let offset = min(max(0, offset), values.count)
         let center = bandContainer.actualWidth / 2
+        if cue.pendingEnd == true {
+            let caret = values.index(values.startIndex, offsetBy: offset)
+            return center + Double(cue.start) * scale - bandDisplayFrame * scale
+                + measureTimelineText(String(values[..<caret]))
+        }
         for (left, right) in zip(anchors, anchors.dropFirst()) where right.textOffset > left.textOffset && offset <= right.textOffset {
             let start = values.index(values.startIndex, offsetBy: left.textOffset)
             let end = values.index(values.startIndex, offsetBy: right.textOffset)

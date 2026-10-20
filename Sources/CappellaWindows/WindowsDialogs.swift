@@ -80,6 +80,15 @@ extension WindowsEditor {
     }
     func toggleEditing() async {
         media.stop()
+        if let cue = self.document.selectedCue, cue.pendingEnd == true {
+            perform {
+                try self.document.commit {
+                    try ProjectEditing.finalizePhrase(in: &$0, id: cue.id, frame: self.document.frame)
+                }
+                self.document.finishEditing()
+            }
+            refresh(); return
+        }
         if self.document.editing { self.document.finishEditing(); refresh(); return }
         if let cue = self.document.project.cues.last(where: { $0.track == self.document.track && $0.start <= self.document.frame && $0.end >= self.document.frame }) {
             self.document.beginEditing(cue, at: self.document.frame); updateTextEditor(focus: true)
@@ -169,27 +178,45 @@ extension WindowsEditor {
     func markPosition() {
         perform { try self.document.commit { let count = $0.positions?.count ?? 0; if $0.positions == nil { $0.positions = [] }; $0.positions?.append(Marker(frame: self.document.frame, label: "Position \(count + 1)")) } }
     }
+    var hasPhraseClipboard: Bool {
+        guard let content = try? Clipboard.getContent() else { return false }
+        return (try? content.contains(ProjectEditing.phraseClipboardType)) == true ||
+            (try? content.contains("org.cappella-rewrite.phrase")) == true
+    }
     func copyPhrase(cut: Bool = false) {
-        guard let cue = self.document.selectedCue, let data = try? JSONEncoder().encode(cue) else { return }
-        let package = DataPackage(); try? package.setText(cue.text)
-        try? package.setData("org.cappella.phrase", data.base64EncodedString())
-        try? Clipboard.setContent(package)
-        if cut { perform { try self.document.deletePhrase() } }
+        guard let cue = self.document.selectedCue else { return }
+        do {
+            let data = try JSONEncoder().encode(cue)
+            let package = DataPackage()
+            try package.setText(cue.text)
+            try package.setData(ProjectEditing.phraseClipboardType, data.base64EncodedString())
+            try Clipboard.setContent(package)
+            // Keep the copy usable after this instance exits. A flush failure
+            // does not invalidate the in-process clipboard or delete a phrase.
+            try? Clipboard.flush()
+            if cut { perform { try self.document.deletePhrase() } }
+        } catch { Task { await showError(error.localizedDescription) } }
     }
     func pastePhrase() async {
+        guard !dialogShowing, !isClosed else { return }
+        media.stop()
+        self.document.finishEditing(); updateTextEditor()
+        let frame = self.document.frame, track = self.document.track
         do {
-            guard let clipboard = try Clipboard.getContent(), try clipboard.contains("org.cappella.phrase"),
-                  let value = try await clipboard.getDataAsync("org.cappella.phrase").get() as? String,
-                  let data = Data(base64Encoded: value), var cue = try? JSONDecoder().decode(Cue.self, from: data) else { return }
-            let delta = self.document.frame - cue.start
-            cue.id = UUID(); cue.sourceIndex = nil; cue.track = self.document.track
-            var signs = cue.anchors
-            cue.start += delta; cue.end += delta
-            for index in signs.indices { signs[index].id = UUID(); signs[index].sourceIndex = nil; signs[index].frame += delta }
-            cue.signs = signs
-            guard !self.document.project.cues.contains(where: { $0.track == cue.track && $0.start < cue.end && $0.end > cue.start }) else { throw ProjectError.invalid("Une phrase occupe déjà la destination.") }
-            if !self.document.project.roles.contains(where: { $0.id == cue.roleID }) { cue.roleID = await chooseRole() }
-            try self.document.commit { $0.cues.append(cue) }; self.document.selection = cue.id; refresh()
+            guard let clipboard = try Clipboard.getContent() else { return }
+            let types = [ProjectEditing.phraseClipboardType, "org.cappella-rewrite.phrase"]
+            guard let type = types.first(where: { (try? clipboard.contains($0)) == true }),
+                  let value = try await clipboard.getDataAsync(type).get() as? String,
+                  let data = Data(base64Encoded: value) else { return }
+            let cue = try JSONDecoder().decode(Cue.self, from: data)
+            try ProjectEditing.validatePaste(cue, in: self.document.project, frame: frame, track: track)
+            guard let role = await chooseRole(preferred: cue.roleID), !isClosed else { return }
+            var pasted: Cue?
+            try self.document.commit {
+                pasted = try ProjectEditing.paste(cue, into: &$0, frame: frame, track: track, roleID: role)
+            }
+            self.document.track = track; self.document.selection = pasted?.id
+            self.document.signSelection = nil; refresh()
         } catch { await showError(error.localizedDescription) }
     }
     func exportText(crossTable: Bool) async {

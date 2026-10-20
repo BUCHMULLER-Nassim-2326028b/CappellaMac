@@ -26,12 +26,8 @@ final class WindowsDocument {
     var originalPhrase: Cue?
     var createdPhrase = false
     var preferences = ApplicationPreferences.load()
-    private var undoStates: [Project] = []
-    private var redoStates: [Project] = []
-    private var editingUndo: [Project]?
-    private var editingRedo: [Project]?
-    private var lastAutomaticSave = Date()
-    private var automaticSnapshot: Project?
+    private var history = ProjectHistory()
+    private var backup = AutomaticBackup()
     var changed: (() -> Void)?
     var dirty: Bool {
         if let cachedDirty { return cachedDirty }
@@ -57,27 +53,24 @@ final class WindowsDocument {
         return low < sortedLoops.count ? sortedLoops[low] : nil
     }
     var title: String { (url?.lastPathComponent ?? project.title) + (dirty ? " *" : "") + " - Cappella" }
-    var canUndo: Bool { !undoStates.isEmpty }
-    var canRedo: Bool { !redoStates.isEmpty }
+    var canUndo: Bool { history.canUndo }
+    var canRedo: Bool { history.canRedo }
 
     func replace(with next: Project, url: URL?) {
-        project = next
-        for index in project.cues.indices where project.cues[index].signs == nil { project.cues[index].signs = project.cues[index].anchors }
+        project = ProjectEditing.normalized(next)
         saved = project; self.url = url; selection = nil; signSelection = nil
         track = 0; frame = project.lastPositionFrame ?? project.mediaStartFrame
         caret = 0; finishEditing()
-        undoStates.removeAll(); redoStates.removeAll(); automaticSnapshot = nil; lastAutomaticSave = Date()
+        history.reset(); backup.reset()
         changed?()
     }
     func read(_ url: URL) throws -> Project {
-        let data = try Data(contentsOf: url)
-        return ["detx", "xml"].contains(url.pathExtension.lowercased()) ? try DetX.read(data) : try Project.decode(data)
+        try ProjectFile.read(url)
     }
     func save(to destination: URL, copy: Bool = false) throws {
         finishEditing()
         var snapshot = project; snapshot.lastPositionFrame = frame
-        let data = destination.pathExtension.lowercased() == "cappellaproject" ? try snapshot.encode() : try DetX.write(snapshot)
-        try data.write(to: destination, options: .atomic)
+        try ProjectFile.write(snapshot, to: destination)
         if !copy { url = destination; project = snapshot; saved = snapshot }
         changed?()
     }
@@ -85,40 +78,43 @@ final class WindowsDocument {
         var next = project
         try change(&next); try next.validate()
         guard next != project else { return }
-        if recordUndo {
-            textUndoCaptured = false
-            undoStates.append(project)
-            if undoStates.count > 200 { undoStates.removeFirst() }
-        }
-        redoStates.removeAll(); project = next; changed?()
+        history.record(before: project, after: next, enabled: recordUndo)
+        if recordUndo { textUndoCaptured = false }
+        project = next; changed?()
     }
     func mutateCue(_ change: (inout Cue) throws -> Void) throws {
         guard let index = project.cues.firstIndex(where: { $0.id == selection }) else { return }
         try commit { try change(&$0.cues[index]) }
     }
     func undo() {
-        guard let value = undoStates.popLast() else { return }
-        redoStates.append(project); project = value; finishEditing(); changed?()
+        guard let value = history.undo(project) else { return }
+        project = value; finishEditing()
+        if !project.cues.contains(where: { $0.id == selection }) { selection = nil; signSelection = nil }
+        changed?()
     }
     func redo() {
-        guard let value = redoStates.popLast() else { return }
-        undoStates.append(project); project = value; finishEditing(); changed?()
+        guard let value = history.redo(project) else { return }
+        project = value; finishEditing()
+        if !project.cues.contains(where: { $0.id == selection }) { selection = nil; signSelection = nil }
+        changed?()
     }
-    func selectTrack(_ value: Int) { finishEditing(); track = min(3, max(0, value)); signSelection = nil; changed?() }
+    func selectTrack(_ value: Int) {
+        finishEditing(); track = min(3, max(0, value)); signSelection = nil
+        selection = project.cues.last(where: { $0.track == track && $0.start <= frame && $0.end >= frame })?.id
+        changed?()
+    }
     func beginEditing(_ cue: Cue, at target: Int) {
         if selection != cue.id || !editing {
             finishEditing(); originalPhrase = cue; createdPhrase = false
-            editingUndo = undoStates; editingRedo = redoStates; textUndoCaptured = false
+            history.beginGroup(project); textUndoCaptured = false
         }
         selection = cue.id; track = cue.track; signSelection = nil
         caret = Timeline.textOffset(in: cue, at: target); editing = true; changed?()
     }
-    func finishEditing() { textUndoCaptured = false; editing = false; originalPhrase = nil; createdPhrase = false; editingUndo = nil; editingRedo = nil }
+    func finishEditing() { textUndoCaptured = false; editing = false; originalPhrase = nil; createdPhrase = false; history.endGroup() }
     func cancelEditing() {
-        if createdPhrase { project.cues.removeAll { $0.id == selection }; selection = nil }
-        else if let originalPhrase, let index = project.cues.firstIndex(where: { $0.id == originalPhrase.id }) { project.cues[index] = originalPhrase }
-        if let editingUndo { undoStates = editingUndo }
-        if let editingRedo { redoStates = editingRedo }
+        if let value = history.cancelGroup() { project = value }
+        if !project.cues.contains(where: { $0.id == selection }) { selection = nil; signSelection = nil }
         finishEditing(); changed?()
     }
     func setText(_ text: String, caret: Int) throws {
@@ -129,26 +125,22 @@ final class WindowsDocument {
         if editing { textUndoCaptured = true }
     }
     func createPhrase(role: UUID, text: String = "", edit: Bool = true) throws {
-        guard !project.cues.contains(where: { $0.track == track && $0.start <= frame && $0.end > frame }) else {
-            throw ProjectError.invalid("Une phrase occupe déjà cette position sur la piste.")
-        }
-        let nextCue = project.cues.filter { $0.track == track && $0.start > frame }.map(\.start).min()
-        let nextLoop = project.loops.filter { $0.frame > frame }.map(\.frame).min()
-        let end = min(frame + project.framesPerSecond * 3, nextCue ?? Int.max, nextLoop ?? Int.max)
-        var cue = Cue(roleID: role, start: frame, end: end, text: text); cue.track = track; cue.signs = cue.anchors
         finishEditing()
-        let history = undoStates, future = redoStates
-        try commit { $0.cues.append(cue) }
-        editingUndo = history; editingRedo = future
+        history.beginGroup(project)
+        var created: Cue?
+        do { try commit { created = try ProjectEditing.createPhrase(in: &$0, role: role, frame: frame, track: track, text: text) } }
+        catch { _ = history.cancelGroup(); throw error }
+        guard let cue = created else { return }
         selection = cue.id; editing = edit; createdPhrase = true; originalPhrase = nil; caret = text.unicodeScalars.count; changed?()
     }
-    func deletePhrase() throws { try commit { $0.cues.removeAll { $0.id == selection } }; selection = nil; signSelection = nil; finishEditing(); changed?() }
+    func deletePhrase() throws {
+        try commit { ProjectEditing.deletePhrase(in: &$0, id: selection) }
+        selection = nil; signSelection = nil; finishEditing(); changed?()
+    }
     func moveTrack(_ value: Int) throws {
-        guard (0..<4).contains(value), let cue = selectedCue else { return }
-        guard !project.cues.contains(where: { $0.id != cue.id && $0.track == value && $0.start < cue.end && $0.end > cue.start }) else {
-            throw ProjectError.invalid("Une phrase occupe déjà la piste à cet endroit.")
-        }
-        try mutateCue { $0.track = value }; track = value; changed?()
+        guard let id = selection else { return }
+        try commit { try ProjectEditing.movePhrase(in: &$0, id: id, track: value) }
+        track = value; changed?()
     }
     func navigate(_ kind: String, _ direction: Int, mediaDuration: Double = 0) -> Int? {
         finishEditing()
@@ -162,9 +154,8 @@ final class WindowsDocument {
     }
     func addSign(_ kind: String) throws {
         if kind.hasPrefix("out_") {
-            try mutateCue { cue in
-                try cue.setBounds(start: cue.start, end: max(cue.start + 1, frame))
-                var signs = cue.anchors; signs[signs.count - 1].kind = kind; cue.signs = signs
+            if let id = selection {
+                try commit { try ProjectEditing.finalizePhrase(in: &$0, id: id, frame: frame, kind: kind) }
             }
             finishEditing(); changed?(); return
         }
@@ -180,14 +171,8 @@ final class WindowsDocument {
     }
     func autoSave(at now: Date = Date(), using supplied: ApplicationPreferences? = nil, in directory: URL? = nil) throws {
         if let supplied { preferences = supplied }
-        guard preferences.automaticSave else { lastAutomaticSave = now; return }
-        guard now.timeIntervalSince(lastAutomaticSave) >= Double(preferences.saveInterval * 60), dirty, project != automaticSnapshot else { return }
-        let folder = directory ?? Self.backupDirectory
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let name = (url?.deletingPathExtension().lastPathComponent ?? "Sans titre").replacingOccurrences(of: ":", with: "-")
-        var snapshot = project; snapshot.lastPositionFrame = frame
-        try snapshot.encode().write(to: folder.appendingPathComponent(name + ".cappellaproject"), options: .atomic)
-        automaticSnapshot = project; lastAutomaticSave = now
+        guard backup.due(at: now, preferences: preferences) else { return }
+        _ = try backup.write(project, modified: dirty, fileURL: url, frame: frame, directory: directory ?? Self.backupDirectory)
     }
     static var backupDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Cappella/Autosaves")

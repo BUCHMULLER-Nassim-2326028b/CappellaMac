@@ -41,6 +41,8 @@ final class Transport: ObservableObject {
     private var seekGeneration = UUID()
 
     init() {
+        player.automaticallyWaitsToMinimizeStalling = false
+        reversePlayer.automaticallyWaitsToMinimizeStalling = false
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -148,7 +150,6 @@ final class Transport: ObservableObject {
                 self.duration = duration.isFinite ? max(0, duration) : 0
                 self.mediaName = image?.lastPathComponent ?? sound?.lastPathComponent
                 self.mediaID = UUID(); self.seek(seconds: savedPosition); self.setRate(savedRate)
-                self.prepareReverseAudio()
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
@@ -192,7 +193,7 @@ final class Transport: ObservableObject {
         guard target.isFinite else { return }
         seconds = max(0, duration > 0 ? min(target, duration) : target)
         requestMediaSeek(seconds)
-        if rate < 0 { seekReverseAudio() }
+        if rate <= 0 { seekReverseAudio() }
         previousTick = Date()
     }
 
@@ -230,10 +231,10 @@ final class Transport: ObservableObject {
     private func prepareReverseAudio() {
         guard channelCount > 0, let asset = player.currentItem?.asset,
               reverseAudio == nil, reverseTask == nil, reverseFailure == nil else { return }
-        let generation = reverseGeneration
+        let generation = reverseGeneration, pcmSource = soundURL ?? videoURL
         reverseTask = Task { @MainActor [weak self] in
             do {
-                let worker = Task.detached(priority: .utility) { try await ReverseAudioPreparation.prepare(asset: asset) }
+                let worker = Task.detached(priority: .utility) { try await ReverseAudioPreparation.prepare(asset: asset, pcmSource: pcmSource) }
                 let prepared = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
                 try Task.checkCancellation()
                 guard let self, self.reverseGeneration == generation else { return }
@@ -249,7 +250,7 @@ final class Transport: ObservableObject {
                     }
                 }
                 self.reversePlayer.replaceCurrentItem(with: item)
-                if self.rate < 0 { self.seekReverseAudio() }
+                self.seekReverseAudio()
             } catch {
                 guard let self, !Task.isCancelled, self.reverseGeneration == generation else { return }
                 self.reverseTask = nil
@@ -267,7 +268,13 @@ final class Transport: ObservableObject {
     }
 
     private func seekReverseAudio() {
-        guard reverseAudio != nil, rate < 0 else { return }
+        guard reverseAudio != nil else { return }
+        let desired = max(0, duration - seconds)
+        let current = reversePlayer.currentTime().seconds
+        if !reverseSeeking, reversePlayer.currentItem?.status == .readyToPlay, current.isFinite, abs(current - desired) <= 1.0 / 48000 {
+            if rate < 0 { reversePlayer.playImmediately(atRate: abs(rate)) }
+            return
+        }
         reversePlayer.pause()
         reversePlayer.currentItem?.cancelPendingSeeks()
         reverseSeeking = true
@@ -288,6 +295,12 @@ final class Transport: ObservableObject {
 
     func setRate(_ value: Float) {
         if value < 0, let message = reverseFailure { error = message; return }
+        if value > 0, rate > 0 {
+            rate = value; player.playImmediately(atRate: value); return
+        }
+        if value < 0, rate < 0, reverseAudio != nil, !reverseSeeking {
+            rate = value; reversePlayer.playImmediately(atRate: abs(value)); return
+        }
         if rate > 0, player.currentItem != nil {
             let position = player.currentTime().seconds
             if position.isFinite { seconds = max(0, position) }
@@ -295,18 +308,23 @@ final class Transport: ObservableObject {
             let position = reversePlayer.currentTime().seconds
             if position.isFinite { seconds = max(0, duration - position) }
         }
+        let previousRate = rate
         reversePlayer.pause()
         reverseSeekGeneration = UUID(); reverseSeeking = false
         rate = value; previousTick = Date(); updateAudio()
         if value > 0 {
-            requestMediaSeek(seconds)
+            // Cancel seeks queued by reverse video before giving the forward
+            // player its clock back. A simple forward resume needs no seek.
+            if previousRate < 0 || seekInFlight || queuedSeek != nil { resetMediaSeeks() }
+            let current = player.currentTime().seconds
+            if !current.isFinite || abs(current - seconds) > 0.001 { requestMediaSeek(seconds) }
             player.playImmediately(atRate: value)
         } else {
             player.pause()
             if value < 0 {
                 if reverseAudio != nil { seekReverseAudio() }
                 else { prepareReverseAudio() }
-            } else { requestMediaSeek(seconds) }
+            } else if previousRate < 0 { requestMediaSeek(seconds) }
         }
     }
     func toggle() { setRate(rate == 0 ? 1 : 0) }

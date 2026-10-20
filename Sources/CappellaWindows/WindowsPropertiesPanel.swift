@@ -29,12 +29,7 @@ extension WindowsEditor {
                     do {
                         if kind == 2 {
                             let imported = try DetX.read(Data(contentsOf: url), fps: draft.framesPerSecond)
-                            for candidate in imported.roles where !draft.roles.contains(where: {
-                                $0.name.localizedCaseInsensitiveCompare(candidate.name) == .orderedSame
-                            }) {
-                                var role = candidate; role.id = UUID(); role.sourceID = nil
-                                draft.roles.append(role)
-                            }
+                            ProjectEditing.mergeRoles(imported.roles, into: &draft)
                         }
                         field.text = url.path; errorText.text = ""
                     } catch { errorText.text = error.localizedDescription }

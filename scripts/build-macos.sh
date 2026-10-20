@@ -27,6 +27,7 @@ xcrun strip -S "$app_path/Contents/MacOS/CappellaMac"
 cp packaging/Info.plist "$app_path/Contents/Info.plist"
 mkdir -p "$app_path/Contents/Resources"
 cp packaging/Resources/Mire.jpg "$app_path/Contents/Resources/Mire.jpg"
+cp packaging/Resources/PreludeFLF*.ttf "$app_path/Contents/Resources/"
 cp packaging/Resources/CappellaLogo.png packaging/Resources/CappellaLogo_dark.png "$app_path/Contents/Resources/"
 icon_work="$(mktemp -d "${TMPDIR:-/tmp}/cappella-icons.XXXXXX")"
 trap 'rm -rf "$icon_work"' EXIT

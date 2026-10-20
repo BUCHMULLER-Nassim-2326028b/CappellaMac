@@ -47,12 +47,12 @@ public enum ControlNavigation {
         guard let target = Timeline.adjacentFrame(in: reachable, from: frame, direction: direction) else { return nil }
         let candidates = project.cues.filter { cue in
             if kind == "role", cue.roleID != selectedRole { return false }
-            return kind == "sign" ? cue.anchors.contains(where: { $0.frame == target }) : cue.start == target
+            return kind == "sign" ? cue.visibleAnchors.contains(where: { $0.frame == target }) : cue.start == target
         }.sorted { left, right in
             left.track == right.track ? left.start < right.start : left.track < right.track
         }
         let cue = candidates.first
-        let sign = kind == "sign" ? cue?.anchors.first(where: { $0.frame == target })?.id : nil
+        let sign = kind == "sign" ? cue?.visibleAnchors.first(where: { $0.frame == target })?.id : nil
         return ControlDestination(frame: target, cueID: cue?.id, track: cue?.track, signID: sign)
     }
 }

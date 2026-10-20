@@ -1,4 +1,5 @@
 import AVFoundation
+import CappellaCore
 
 /// AVPlayer mixes separate mono tracks to the centre. Convert four independent
 /// mono tracks to two explicitly interleaved stereo pairs, once before playback.
@@ -24,14 +25,10 @@ final class StereoAudioPreparation {
         var mono: [URL] = []
         for (index, track) in tracks.enumerated() {
             try Task.checkCancellation()
-            let url = prepared.directory.appendingPathComponent("mono-\(index).caf")
+            let url = prepared.directory.appendingPathComponent("mono-\(index).wav")
             try decode(asset: asset, track: track, to: url); mono.append(url)
         }
-        for version in 0..<2 {
-            let url = prepared.directory.appendingPathComponent(version == 0 ? "VO.caf" : "VI.caf")
-            try pair(left: mono[version * 2], right: mono[version * 2 + 1], to: url)
-            prepared.versions.append(url)
-        }
+        prepared.versions = try PCMChannelPreparation.prepare(mono, in: prepared.directory)
         for url in mono { try? FileManager.default.removeItem(at: url) }
         return prepared
     }
@@ -77,25 +74,4 @@ final class StereoAudioPreparation {
         }
     }
 
-    private static func pair(left: URL, right: URL, to url: URL) throws {
-        let inputs = try [left, right].map { try AVAudioFile(forReading: $0, commonFormat: .pcmFormatFloat32, interleaved: false) }
-        let result = try AVAudioFile(forWriting: url, settings: settings(channels: 2), commonFormat: .pcmFormatFloat32, interleaved: false)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: result.processingFormat, frameCapacity: 4096) else { throw CocoaError(.fileWriteUnknown) }
-        let length = inputs.map(\.length).max() ?? 0
-        var position: AVAudioFramePosition = 0
-        while position < length {
-            try Task.checkCancellation()
-            let count = AVAudioFrameCount(min(4096, length - position)); buffer.frameLength = count
-            for (channel, file) in inputs.enumerated() {
-                let destination = buffer.floatChannelData![channel]
-                memset(destination, 0, Int(count) * MemoryLayout<Float>.size)
-                if position < file.length, let mono = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: count) {
-                    file.framePosition = position
-                    try file.read(into: mono, frameCount: AVAudioFrameCount(min(AVAudioFramePosition(count), file.length - position)))
-                    memcpy(destination, mono.floatChannelData![0], Int(mono.frameLength) * MemoryLayout<Float>.size)
-                }
-            }
-            try result.write(from: buffer); position += AVAudioFramePosition(count)
-        }
-    }
 }

@@ -63,7 +63,7 @@ struct RythmoView: View {
                 }
                 for cue in project.cues where (0..<4).contains(cue.track) {
                     let begin = cursor + CGFloat(cue.start - frame) * scale
-                    let end = cursor + CGFloat(cue.end - frame) * scale
+                    let end = cursor + (visibleEndFrame(cue) - CGFloat(frame)) * scale
                     guard end >= 0, begin <= size.width else { continue }
                     let y = (CGFloat(cue.track) + 0.5) * laneHeight
                     let role = project.roles.first { $0.id == cue.roleID }
@@ -72,14 +72,14 @@ struct RythmoView: View {
                     laneContext.clip(to: Path(CGRect(x: 0, y: CGFloat(cue.track) * laneHeight, width: size.width, height: laneHeight)))
                     for segment in Timeline.segments(cue) where cue.id != editingCue {
                         let x = cursor + CGFloat(segment.start - frame) * scale
-                        let segmentWidth = CGFloat(segment.end - segment.start) * scale
+                        let segmentWidth = segment.naturalWidth ? DialogueTextEditor.fittingWidth(segment.text, fontName: fontName, fontSize: fontSize) : CGFloat(segment.end - segment.start) * scale
                         guard segmentWidth > 0, x + segmentWidth >= 0, x <= size.width else { continue }
-                        let text = laneContext.resolve(Text(segment.text).underline(cue.voice == "off").font(.custom(fontName, size: CGFloat(fontSize))).foregroundColor(color))
+                        let text = laneContext.resolve(Text(segment.text).underline(cue.voice == "off").font(.custom(TimelineFont.faceName(fontName), size: CGFloat(fontSize))).foregroundColor(color))
                         let measured = text.measure(in: CGSize(width: 100000, height: laneHeight))
                         guard measured.width > 0 else { continue }
                         var textContext = laneContext
                         textContext.translateBy(x: x, y: y + 2)
-                        textContext.scaleBy(x: segmentWidth / measured.width, y: 1)
+                        textContext.scaleBy(x: segment.naturalWidth ? 1 : segmentWidth / measured.width, y: 1)
                         textContext.draw(text, at: .zero, anchor: .leading)
                     }
                     if showDetection {
@@ -91,7 +91,7 @@ struct RythmoView: View {
                         context.draw(name, at: CGPoint(x: labelX + 3, y: labelY + 7), anchor: .leading)
                     }
                     if showGrid {
-                        for sign in cue.anchors {
+                        for sign in cue.visibleAnchors {
                             let x = cursor + CGFloat(sign.frame - frame) * scale
                             guard x >= 0, x <= size.width else { continue }
                             let bottom = CGFloat(cue.track + 1) * laneHeight - 2
@@ -150,7 +150,7 @@ struct RythmoView: View {
                     dragReferenceFrame = frame
                     if showGrid {
                         for cue in project.cues where cue.track == track {
-                            if let sign = cue.anchors.first(where: { abs(cursor + CGFloat($0.frame - frame) * scale - value.startLocation.x) < 7 }) {
+                            if let sign = cue.visibleAnchors.first(where: { abs(cursor + CGFloat($0.frame - frame) * scale - value.startLocation.x) < 7 }) {
                                 draggedSign = (cue.id, sign.id); dragSignFrame = sign.frame; break
                             }
                         }
@@ -166,7 +166,7 @@ struct RythmoView: View {
                 if !didDrag {
                     let track = min(3, max(0, Int(value.startLocation.y / laneHeight)))
                     let target = max(0, dragReferenceFrame + Int(((value.startLocation.x - cursor) / scale).rounded()))
-                    if let cue = project.cues.last(where: { $0.track == track && $0.start <= target && $0.end >= target }) {
+                    if let cue = project.cues.last(where: { $0.track == track && $0.start <= target && visibleEndFrame($0) >= CGFloat(target) }) {
                         editCue(cue.id, target)
                     } else {
                         selectTrack(track)
@@ -178,13 +178,23 @@ struct RythmoView: View {
         .clipped()
         .accessibilityLabel("Bande rythmo, quatre pistes, \(Timecode.format(frame, fps: project.framesPerSecond))")
     }
+    private func visibleEndFrame(_ cue: Cue) -> CGFloat {
+        guard cue.pendingEnd == true else { return CGFloat(cue.end) }
+        let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
+        let end = Timeline.segments(cue).map { segment in
+            segment.naturalWidth
+                ? CGFloat(segment.start) + DialogueTextEditor.fittingWidth(segment.text, fontName: fontName, fontSize: fontSize) / scale
+                : CGFloat(segment.end)
+        }.max() ?? CGFloat(cue.start)
+        return max(CGFloat(cue.end), end)
+    }
     private func textCursorRects(size: CGSize) -> [CGRect] {
         let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
         let laneHeight = size.height / 4
         return project.cues.compactMap { cue in
             guard (0..<4).contains(cue.track), !cue.text.isEmpty else { return nil }
             let left = max(0, size.width / 2 + CGFloat(cue.start - frame) * scale)
-            let right = min(size.width, size.width / 2 + CGFloat(cue.end - frame) * scale)
+            let right = min(size.width, size.width / 2 + (visibleEndFrame(cue) - CGFloat(frame)) * scale)
             guard right > left else { return nil }
             return CGRect(x: left, y: CGFloat(cue.track) * laneHeight, width: right - left, height: laneHeight)
         }
@@ -198,14 +208,14 @@ struct RythmoView: View {
         let track = min(3, max(0, Int(point.y / laneHeight)))
         let target = frame + Int(((point.x - cursor) / scale).rounded())
         let laneCues = project.cues.filter { $0.track == track }
-        let cue = laneCues.last { $0.start <= target && $0.end >= target }
+        let cue = laneCues.last { $0.start <= target && visibleEndFrame($0) >= CGFloat(target) }
             ?? laneCues.last { cue in
-                cue.anchors.contains { abs(cursor + CGFloat($0.frame - frame) * scale - point.x) <= 7 }
+                cue.visibleAnchors.contains { abs(cursor + CGFloat($0.frame - frame) * scale - point.x) <= 7 }
             }
         guard let cue else { return nil }
         var signID: UUID?
         if showGrid, point.y >= CGFloat(track + 1) * laneHeight - 20 {
-            signID = cue.anchors.first { abs(cursor + CGFloat($0.frame - frame) * scale - point.x) <= 7 }?.id
+            signID = cue.visibleAnchors.first { abs(cursor + CGFloat($0.frame - frame) * scale - point.x) <= 7 }?.id
         }
         return contextMenu(cue.id, signID)
     }

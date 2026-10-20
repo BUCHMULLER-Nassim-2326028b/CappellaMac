@@ -8,18 +8,25 @@ import CappellaCore
 @MainActor
 public final class ProjectSession: ObservableObject {
     public static let shared = ProjectSession()
-    @Published public var project: Project { didSet { updateWindowTitle() } }
+    @Published public var project: Project {
+        didSet {
+            if !restoringHistory { history.record(before: oldValue, after: project) }
+            updateWindowTitle()
+        }
+    }
     @Published public private(set) var identity = UUID()
     @Published public private(set) var fileURL: URL?
     public weak var window: NSWindow?
+    public var currentFrame: Int?
     public var onWindowAttached: (() -> Void)?
     private let editorWindows = NSHashTable<NSWindow>.weakObjects()
     public var visibleEditorWindowCount: Int { editorWindows.allObjects.filter { $0.isVisible }.count }
     private var savedProject: Project
     private var terminating = false
     private var recoveredDocument = false
-    private var automaticSnapshot: Project?
-    private var lastAutomaticAttempt = Date()
+    private var backup = AutomaticBackup()
+    private var history = ProjectHistory()
+    private var restoringHistory = false
     @Published public private(set) var lastAutomaticSaveURL: URL?
     @Published public private(set) var automaticSaveError: String?
     public var isModified: Bool { recoveredDocument || project != savedProject }
@@ -37,12 +44,26 @@ public final class ProjectSession: ObservableObject {
         self.project = normalized; self.savedProject = normalized
     }
 
-    private static func normalized(_ source: Project) -> Project {
-        var value = source
-        for i in value.cues.indices where value.cues[i].signs == nil { value.cues[i].signs = value.cues[i].anchors }
-        return value
+    private static func normalized(_ source: Project) -> Project { ProjectEditing.normalized(source) }
+    public var canUndo: Bool { history.canUndo }
+    public var canRedo: Bool { history.canRedo }
+    public func beginEditingGroup() { history.beginGroup(project) }
+    public func endEditingGroup() { history.endGroup() }
+    public func cancelEditingGroup() {
+        window?.makeFirstResponder(nil)
+        guard let value = history.cancelGroup() else { return }
+        restoringHistory = true; project = value; restoringHistory = false
     }
-
+    public func undo() {
+        window?.makeFirstResponder(nil)
+        guard let value = history.undo(project) else { return }
+        restoringHistory = true; project = value; restoringHistory = false
+    }
+    public func redo() {
+        window?.makeFirstResponder(nil)
+        guard let value = history.redo(project) else { return }
+        restoringHistory = true; project = value; restoringHistory = false
+    }
     public func attach(window: NSWindow) {
         self.window = window; editorWindows.add(window)
         updateWindowTitle()
@@ -82,10 +103,7 @@ public final class ProjectSession: ObservableObject {
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
             // Decode first. A broken file must never discard the current work.
-            let data = try Data(contentsOf: url)
-            let next: Project
-            if ["detx", "xml"].contains(url.pathExtension.lowercased()) { next = try DetX.read(data) }
-            else { next = try Project.decode(data) }
+            let next = try ProjectFile.read(url)
             guard mayReplace() else { return false }
             replace(with: next, url: asRecovery ? nil : url)
             recoveredDocument = asRecovery; updateWindowTitle()
@@ -99,8 +117,10 @@ public final class ProjectSession: ObservableObject {
         // the replacement project, even when copied projects share cue IDs.
         window?.makeFirstResponder(nil)
         let next = Self.normalized(value)
-        project = next; savedProject = next; fileURL = url; terminating = false
-        recoveredDocument = false; automaticSnapshot = nil; lastAutomaticSaveURL = nil; automaticSaveError = nil; lastAutomaticAttempt = Date()
+        restoringHistory = true; project = next; restoringHistory = false
+        history.reset(); backup.reset()
+        savedProject = next; fileURL = url; currentFrame = next.lastPositionFrame ?? next.mediaStartFrame; terminating = false
+        recoveredDocument = false; lastAutomaticSaveURL = nil; automaticSaveError = nil
         identity = UUID(); updateWindowTitle()
     }
 
@@ -123,11 +143,12 @@ public final class ProjectSession: ObservableObject {
         let access = destination.startAccessingSecurityScopedResource()
         defer { if access { destination.stopAccessingSecurityScopedResource() } }
         do {
-            let contents: Data
-            if destination.pathExtension.lowercased() == "cappellaproject" { contents = try project.encode() }
-            else { contents = try DetX.write(project) }
-            try contents.write(to: destination, options: .atomic)
-            if !copy { fileURL = destination; savedProject = project; recoveredDocument = false; recordRecent(destination); updateWindowTitle() }
+            var snapshot = project
+            if let currentFrame { snapshot.lastPositionFrame = currentFrame }
+            try ProjectFile.write(snapshot, to: destination)
+            if !copy {
+                restoringHistory = true; project = snapshot; restoringHistory = false
+                fileURL = destination; savedProject = snapshot; recoveredDocument = false; recordRecent(destination); updateWindowTitle() }
             return true
         } catch { failure(error); return false }
     }
@@ -138,31 +159,22 @@ public final class ProjectSession: ObservableObject {
     }
 
     @discardableResult public func attemptAutomaticSave(at now: Date = Date(), preferences: ApplicationPreferences, in directory: URL? = nil) -> URL? {
-        guard preferences.automaticSave else { lastAutomaticAttempt = now; return nil }
-        guard now.timeIntervalSince(lastAutomaticAttempt) >= Double(min(120, max(1, preferences.saveInterval)) * 60),
-              window?.attachedSheet == nil else { return nil }
-        lastAutomaticAttempt = now
+        guard window?.attachedSheet == nil, backup.due(at: now, preferences: preferences) else { return nil }
         return writeAutomaticBackup(in: directory)
     }
 
-    /// Recovery copies never replace the source or clear its unsaved state.
+    /// Recovery never changes the document's saved/unsaved state.
     @discardableResult public func writeAutomaticBackup(in directory: URL? = nil) -> URL? {
-        guard isModified, project != automaticSnapshot else { return nil }
         do {
-            let folder = directory ?? Self.automaticSaveDirectory
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let base = fileURL?.deletingPathExtension().lastPathComponent ?? (project.title.isEmpty ? "Sans titre" : project.title)
-            let safe = base.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: "\\", with: "-")
-            let url = folder.appendingPathComponent(safe + "-" + identity.uuidString + ".cappellaproject")
-            try project.encode().write(to: url, options: .atomic)
-            automaticSnapshot = project; lastAutomaticSaveURL = url; automaticSaveError = nil
-            return url
+            let destination = try backup.write(project, modified: isModified, fileURL: fileURL,
+                frame: currentFrame ?? project.lastPositionFrame, directory: directory ?? Self.automaticSaveDirectory)
+            if let destination { lastAutomaticSaveURL = destination; automaticSaveError = nil }
+            return destination
         } catch {
             automaticSaveError = "Sauvegarde automatique impossible : " + error.localizedDescription
             return nil
         }
     }
-
     private func mayReplace() -> Bool {
         guard isModified else { return true }
         let choice: ReplacementChoice

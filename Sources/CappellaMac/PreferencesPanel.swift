@@ -6,6 +6,7 @@ import CappellaSession
 struct PreferencesPanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ApplicationPreferences.load()
+    @State private var error: String?
     @ObservedObject private var session = ProjectSession.shared
 
     var body: some View {
@@ -40,10 +41,10 @@ struct PreferencesPanel: View {
                     Toggle("Fermer automatiquement les réacs", isOn: $draft.closeReactions)
                     Divider()
                     Picker("Police", selection: $draft.fontName) {
-                        ForEach(["Apple Chancery", "Snell Roundhand", "Times New Roman", "Arial", "Courier New"], id: \.self) { Text($0).tag($0) }
+                        ForEach(["PreludeFLF", "Apple Chancery", "Snell Roundhand", "Times New Roman", "Arial", "Courier New"], id: \.self) { Text($0).tag($0) }
                     }
                     HStack { Text("Taille"); Slider(value: $draft.fontSize, in: 16...42); Text("\(Int(draft.fontSize))") }
-                    HStack { Text("Vitesse de défilement"); Slider(value: $draft.pixelsPerSecond, in: 30...400) }
+                    HStack { Text("Vitesse de défilement"); Slider(value: $draft.pixelsPerSecond, in: 15...800) }
                     HStack { Text("Hauteur"); Slider(value: $draft.bandHeight, in: 120...260) }
                     Toggle("Grille et signes", isOn: $draft.showGrid)
                     Toggle("Détection", isOn: $draft.showDetection)
@@ -65,8 +66,17 @@ struct PreferencesPanel: View {
             HStack {
                 Spacer()
                 Button("Annuler") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("OK") { draft.save(); dismiss() }.keyboardShortcut(.defaultAction)
+                Button("OK") {
+                    do {
+                        try draft.validate()
+                        guard draft.save() else { throw ProjectError.invalid("Impossible d'enregistrer les préférences.") }
+                        dismiss()
+                    } catch { self.error = error.localizedDescription }
+                }.keyboardShortcut(.defaultAction)
             }
         }.padding(18).frame(width: 560, height: 425)
+        .alert("Préférences", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: { Text(error ?? "") }
     }
 }

@@ -24,9 +24,8 @@ public:
     unsigned char *data() const { return bytes; }
 };
 
-// PCM is decoded incrementally. Only a one-second buffer is reversed at once;
-// channel order within each sample frame is preserved.
-static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar_t *vo,
+// Native decoding only; channel routing and reversal are performed in CappellaCore.
+static HRESULT decode_stream(IMFSourceReader *reader, DWORD stream, const wchar_t *vo,
                               const wchar_t *vi, double *duration, int32_t *paired,
                               int32_t (*cancelled)(void)) {
     ComPtr<IMFMediaType> native, pcm, actual;
@@ -57,23 +56,26 @@ static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar
     if (actualRate != sampleRate || bits != 16 || actualChannels != channels || alignment != channels * 2)
         return MF_E_INVALIDMEDIATYPE;
 
-    PCMBuffer zeros((size_t)sampleRate * alignment, true);
+    const UINT32 blockFrames = 8192;
+    PCMBuffer zeros((size_t)blockFrames * alignment, true);
     if (!zeros.data()) return E_OUTOFMEMORY;
-    FILE *decoded = nullptr, *outputs[2] = { nullptr, nullptr };
-    wchar_t tempDirectory[MAX_PATH], tempFile[MAX_PATH];
-    if (!GetTempPathW(MAX_PATH, tempDirectory) || !GetTempFileNameW(tempDirectory, L"cap", 0, tempFile))
-        return HRESULT_FROM_WIN32(GetLastError());
-    _wfopen_s(&decoded, tempFile, L"w+b");
-    if (!decoded) { DeleteFileW(tempFile); return E_FAIL; }
-    const UINT32 outputChannels = channels == 4 ? 2 : channels;
-    const UINT32 outputCount = channels == 4 ? 2 : 1;
+    FILE *decoded = nullptr;
+    _wfopen_s(&decoded, vo, L"w+b");
+    if (!decoded) return E_FAIL;
+    // Reserve the WAV header, then decode straight into its data chunk.
+    // A temporary PCM file plus a second complete copy delays both directions.
+    const unsigned char header[44] = {};
+    if (fwrite(header, 1, sizeof(header), decoded) != sizeof(header)) {
+        fclose(decoded); DeleteFileW(vo); return E_FAIL;
+    }
+    const UINT32 outputChannels = channels;
     const uint64_t maxFrames = (UINT32_MAX - 36ULL) / (outputChannels * 2);
     uint64_t frames = 0;
     auto writeSilence = [&](uint64_t target) -> HRESULT {
         if (target > maxFrames) return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         while (frames < target) {
             if (cancelled && cancelled()) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
-            size_t count = (size_t)((target - frames) < sampleRate ? (target - frames) : sampleRate);
+            size_t count = (size_t)((target - frames) < blockFrames ? (target - frames) : blockFrames);
             if (fwrite(zeros.data(), alignment, count, decoded) != count) return E_FAIL;
             frames += count;
         }
@@ -136,48 +138,24 @@ static HRESULT reverse_stream(IMFSourceReader *reader, DWORD stream, const wchar
         }
         PropVariantClear(&value);
         if (FAILED(hr)) break;
-        for (UINT32 version = 0; version < outputCount; ++version) {
-            _wfopen_s(&outputs[version], version ? vi : vo, L"wb");
-            if (!outputs[version]) { hr = E_FAIL; break; }
-            UINT32 size = (UINT32)(frames * outputChannels * 2), riffSize = size + 36;
-            UINT32 fmtSize = 16, rate = sampleRate, byteRate = rate * outputChannels * 2;
-            UINT16 format = 1, channelCount = (UINT16)outputChannels, block = channelCount * 2, depth = 16;
-            FILE *file = outputs[version];
-            if (fwrite("RIFF", 1, 4, file) != 4 || fwrite(&riffSize, 4, 1, file) != 1 ||
-                fwrite("WAVEfmt ", 1, 8, file) != 8 || fwrite(&fmtSize, 4, 1, file) != 1 ||
-                fwrite(&format, 2, 1, file) != 1 || fwrite(&channelCount, 2, 1, file) != 1 ||
-                fwrite(&rate, 4, 1, file) != 1 || fwrite(&byteRate, 4, 1, file) != 1 ||
-                fwrite(&block, 2, 1, file) != 1 || fwrite(&depth, 2, 1, file) != 1 ||
-                fwrite("data", 1, 4, file) != 4 || fwrite(&size, 4, 1, file) != 1) { hr = E_FAIL; break; }
-        }
-        if (FAILED(hr)) break;
-        PCMBuffer input((size_t)sampleRate * alignment), output((size_t)sampleRate * outputChannels * 2);
-        if (!input.data() || !output.data()) { hr = E_OUTOFMEMORY; break; }
-        uint64_t end = frames;
-        while (end) {
-            if (cancelled && cancelled()) { hr = HRESULT_FROM_WIN32(ERROR_CANCELLED); break; }
-            size_t count = (size_t)(end < sampleRate ? end : sampleRate);
-            if (_fseeki64(decoded, (__int64)((end - count) * alignment), SEEK_SET) ||
-                fread(input.data(), alignment, count, decoded) != count) { hr = E_FAIL; break; }
-            for (UINT32 version = 0; version < outputCount; ++version) {
-                size_t block = outputChannels * 2;
-                for (size_t frame = 0; frame < count; ++frame)
-                    memcpy(output.data() + frame * block,
-                           input.data() + (count - frame - 1) * alignment + version * block, block);
-                if (fwrite(output.data(), block, count, outputs[version]) != count) { hr = E_FAIL; break; }
-            }
-            if (FAILED(hr)) break;
-            end -= count;
-        }
-        if (SUCCEEDED(hr)) { *duration = (double)frames / sampleRate; *paired = outputCount == 2; }
+        if (_fseeki64(decoded, 0, SEEK_SET)) { hr = E_FAIL; break; }
+        UINT32 size = (UINT32)(frames * outputChannels * 2), riffSize = size + 36;
+        UINT32 fmtSize = 16, rate = sampleRate, byteRate = rate * outputChannels * 2;
+        UINT16 format = 1, channelCount = (UINT16)outputChannels, block = channelCount * 2, depth = 16;
+        if (fwrite("RIFF", 1, 4, decoded) != 4 || fwrite(&riffSize, 4, 1, decoded) != 1 ||
+            fwrite("WAVEfmt ", 1, 8, decoded) != 8 || fwrite(&fmtSize, 4, 1, decoded) != 1 ||
+            fwrite(&format, 2, 1, decoded) != 1 || fwrite(&channelCount, 2, 1, decoded) != 1 ||
+            fwrite(&rate, 4, 1, decoded) != 1 || fwrite(&byteRate, 4, 1, decoded) != 1 ||
+            fwrite(&block, 2, 1, decoded) != 1 || fwrite(&depth, 2, 1, decoded) != 1 ||
+            fwrite("data", 1, 4, decoded) != 4 || fwrite(&size, 4, 1, decoded) != 1) { hr = E_FAIL; break; }
+        *duration = (double)frames / sampleRate; *paired = 0;
     } while (false);
-    for (FILE *file : outputs) if (file && fclose(file)) hr = E_FAIL;
-    fclose(decoded); DeleteFileW(tempFile);
-    if (FAILED(hr)) { DeleteFileW(vo); DeleteFileW(vi); }
+    if (fclose(decoded)) hr = E_FAIL;
+    if (FAILED(hr)) DeleteFileW(vo);
     return hr;
 }
 
-int32_t cappella_reverse_audio(const uint16_t *source, const uint16_t *vo, const uint16_t *vi,
+static int32_t prepare_audio(const uint16_t *source, const uint16_t *vo, const uint16_t *vi,
                               int32_t ordinal, int32_t *streams, int32_t *paired, double *duration,
                               int32_t (*cancelled)(void)) {
     if (!source || !vo || !vi || !streams || !paired || !duration || ordinal < 0) return E_INVALIDARG;
@@ -203,7 +181,7 @@ int32_t cappella_reverse_audio(const uint16_t *source, const uint16_t *vo, const
                 }
                 if (SUCCEEDED(hr)) {
                     if (chosen == MF_SOURCE_READER_INVALID_STREAM_INDEX) hr = S_FALSE;
-                    else hr = reverse_stream(reader.Get(), chosen, (const wchar_t *)vo, (const wchar_t *)vi,
+                    else hr = decode_stream(reader.Get(), chosen, (const wchar_t *)vo, (const wchar_t *)vi,
                                              duration, paired, cancelled);
                 }
             }
@@ -212,4 +190,10 @@ int32_t cappella_reverse_audio(const uint16_t *source, const uint16_t *vo, const
     }
     if (SUCCEEDED(apartment)) CoUninitialize();
     return hr;
+}
+
+int32_t cappella_decode_audio(const uint16_t *source, const uint16_t *destination,
+    int32_t ordinal, int32_t *streams, double *duration, int32_t (*cancelled)(void)) {
+    int32_t paired = 0;
+    return prepare_audio(source, destination, destination, ordinal, streams, &paired, duration, cancelled);
 }

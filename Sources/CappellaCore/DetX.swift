@@ -76,10 +76,15 @@ public enum DetX {
             // single lipsync sign. It is not a timed dialogue yet; keep it in
             // originalDetX rather than inventing an end time or rejecting the file.
             if isUnfinishedLine(element) { continue }
+            let pending = signs.last.map { !$0.kind.hasPrefix("out_") } ?? false
+            if pending, let first = signs.first, let last = signs.last {
+                signs.append(SyncSign(frame: max(first.frame + 3 * fps, last.frame + 1),
+                                      textOffset: text.unicodeScalars.count, kind: "out_open"))
+            }
             guard signs.count >= 2, let first = signs.first, let last = signs.last,
                   first.textOffset == 0, last.textOffset == text.unicodeScalars.count else { throw ProjectError.invalid("La phrase doit être délimitée par deux signes.") }
             var cue = Cue(roleID: role.id, start: first.frame, end: last.frame, text: text)
-            cue.sourceIndex = index; cue.track = track; cue.signs = signs; cue.voice = attr(element, "voice")
+            cue.sourceIndex = index; cue.track = track; cue.signs = signs; cue.voice = attr(element, "voice"); cue.pendingEnd = pending ? true : nil
             project.cues.append(cue)
         }
         for tag in ["loop", "shot"] {
@@ -217,18 +222,18 @@ public enum DetX {
         let originalTexts = line.elements(forName: "text")
         // Existing node attributes (including link/type) are preserved.
         (line.children ?? []).forEach { $0.detach() }
-        let signs = cue.anchors
+        let signs = cue.visibleAnchors
         for (index, sign) in signs.enumerated() {
             let node: XMLElement
             if let source = sign.sourceIndex, originalSigns.indices.contains(source), let copy = originalSigns[source].copy() as? XMLElement { node = copy }
             else { node = XMLElement(name: "lipsync") }
             set(node, "type", sign.kind); set(node, "timecode", Timecode.format(sign.frame, fps: fps))
             line.addChild(node)
-            if index + 1 < signs.count {
-                let next = signs[index + 1]
+            if index + 1 < signs.count || cue.pendingEnd == true {
+                let nextOffset = index + 1 < signs.count ? signs[index + 1].textOffset : cue.text.unicodeScalars.count
                 let scalars = cue.text.unicodeScalars
                 let a = scalars.index(scalars.startIndex, offsetBy: sign.textOffset)
-                let b = scalars.index(scalars.startIndex, offsetBy: next.textOffset)
+                let b = scalars.index(scalars.startIndex, offsetBy: nextOffset)
                 let templateIndex = sign.sourceIndex ?? signs.prefix(index + 1).reversed().compactMap(\.sourceIndex).first ?? 0
                 let chunks = String(scalars[a..<b]).components(separatedBy: "\n")
                 for (chunkIndex, chunk) in chunks.enumerated() {

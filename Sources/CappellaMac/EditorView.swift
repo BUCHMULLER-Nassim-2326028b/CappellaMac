@@ -47,8 +47,11 @@ struct EditorView: View {
     @State private var validationReport = ""
     @State private var lastScrolledCue: UUID?
     @State private var rolesToImport: [Role] = []
+    @State private var pasteCandidate: Cue?
+    @State private var pasteFrame = 0
+    @State private var pasteTrack = 0
     @AppStorage("rythmo.pixelsPerSecond") private var pixelsPerSecond = 120.0
-    @AppStorage("rythmo.font") private var fontName = "Apple Chancery"
+    @AppStorage("rythmo.font") private var fontName = ApplicationPreferences.defaultFontName
     @AppStorage("rythmo.fontSize") private var fontSize = 28.0
     @AppStorage("rythmo.height") private var rythmoHeight = 146.0
     @AppStorage("rythmo.grid") private var showGrid = true
@@ -60,7 +63,8 @@ struct EditorView: View {
         EditorCommandState(currentTrack: currentTrack, hasSelection: selection != nil, hasSign: selectedSign != nil,
                            showGrid: showGrid, showDetection: showDetection,
                            recording: recorder.recording, usingVI: transport.usingVI,
-                           detectionMode: detectionMode, playbackRate: Double(transport.rate))
+                           detectionMode: detectionMode, playbackRate: Double(transport.rate),
+                           canUndo: ProjectSession.shared.canUndo, canRedo: ProjectSession.shared.canRedo)
     }
 
     var body: some View {
@@ -163,6 +167,7 @@ struct EditorView: View {
             .background(appearance == "dark" ? Color(white: 0.13) : Color(red: 0.965, green: 0.968, blue: 0.977))
             .onChange(of: selection) { id in if let id { proxy.scrollTo(id, anchor: .center) } }
             .onChange(of: frame) { value in
+                ProjectSession.shared.currentFrame = value
                 guard transport.rate != 0, !editingPhrase,
                       let cue = orderedCues.last(where: { $0.start <= value }), cue.id != lastScrolledCue else { return }
                 lastScrolledCue = cue.id; proxy.scrollTo(cue.id, anchor: .center)
@@ -238,10 +243,12 @@ struct EditorView: View {
             let scale = CGFloat(pixelsPerSecond / Double(project.framesPerSecond))
             let left = max(0, geometry.size.width / 2 + CGFloat(cue.start - frame) * scale)
             let width = DialogueTextEditor.fittingWidth(cue.text, fontName: fontName, fontSize: fontSize)
+            let textScale: CGFloat = cue.pendingEnd == true ? 1 : max(1, CGFloat(cue.end - cue.start) * scale) / width
             DialogueTextEditor(text: Binding(get: { selectedCue?.text ?? "" }, set: { value in
                 mutateSelected { $0.editText(value) }
             }), caret: $caret, fontName: fontName, fontSize: fontSize, underlined: cue.voice == "off", menuProvider: { phraseContextMenu(cue.id, nil) })
-                .frame(width: min(width, max(8, geometry.size.width - left)), height: geometry.size.height / 4 - 2)
+                .frame(width: width, height: geometry.size.height / 4 - 2)
+                .scaleEffect(x: textScale, y: 1, anchor: .leading)
                 .offset(x: left, y: CGFloat(cue.track) * geometry.size.height / 4 + 1)
                 .id(cue.id)
         }
@@ -297,7 +304,7 @@ struct EditorView: View {
                             let role = Role(name: name, color: project.roles.count); project.roles.append(role); chosenRole = role.id
                         }
                     }
-                    Button("Annuler") { panel = nil }.keyboardShortcut(.cancelAction)
+                    Button("Annuler") { pasteCandidate = nil; panel = nil }.keyboardShortcut(.cancelAction)
                     Spacer(); Button("OK", action: confirmRole).keyboardShortcut(.defaultAction).disabled(chosenRole == nil)
                 }
             }.padding(18).frame(width: 460, height: 360)
@@ -386,9 +393,11 @@ struct EditorView: View {
             }
         case .exportCrossTable: exportData(type: .commaSeparatedText, name: "Croisille.csv") { Data(project.crossTableCSV().utf8) }
         case .changeRole:
+            pasteCandidate = nil
             guard let cue = selectedCue else { return }
             assigningExisting = true; chosenRole = cue.roleID; panel = .chooseRole
         case .roles:
+            pasteCandidate = nil
             if editingPhrase { assigningExisting = true; chosenRole = selectedCue?.roleID; panel = .chooseRole }
             else { panel = .roles }
         case .properties: panel = .properties
@@ -398,6 +407,14 @@ struct EditorView: View {
         case .timestamp: transport.setRate(0); if editingPhrase { finishPhrase() }; input = Timecode.format(project.mediaStartFrame, fps: project.framesPerSecond); panel = .timestamp
         case .preferences: panel = .preferences
         case .check: verify()
+        case .undo:
+            transport.setRate(0); ProjectSession.shared.undo()
+            editingPhrase = false; originalPhrase = nil; newPhrase = false
+            if selectedCue == nil { selection = nil; selectedSign = nil }
+        case .redo:
+            transport.setRate(0); ProjectSession.shared.redo()
+            editingPhrase = false; originalPhrase = nil; newPhrase = false
+            if selectedCue == nil { selection = nil; selectedSign = nil }
         case .playPause: startShuttle(transport.rate == 0 ? 1 : 0)
         case .stop: transport.setRate(0); project.lastPositionFrame = frame
         case .step(let amount): transport.setRate(0); seek(to: frame + amount)
@@ -420,7 +437,7 @@ struct EditorView: View {
                index > 0, index < cue.anchors.count - 1 { perform(.deleteSign) }
             else { perform(.deletePhrase) }
         case .deletePhrase:
-            if let id = selection { project.cues.removeAll { $0.id == id } }
+            ProjectEditing.deletePhrase(in: &project, id: selection)
             selection = nil; selectedSign = nil; editingPhrase = false
         case .track(let value):
             if editingPhrase { finishPhrase() }
@@ -428,9 +445,9 @@ struct EditorView: View {
             selection = project.cues.last(where: { $0.track == currentTrack && $0.start <= frame && $0.end >= frame })?.id
             selectedSign = nil
         case .moveTrack(let value):
-            guard (0..<4).contains(value) else { return }
-            guard let cue = selectedCue, !project.cues.contains(where: { $0.id != cue.id && $0.track == value && $0.start < cue.end && $0.end > cue.start }) else { NSSound.beep(); return }
-            currentTrack = value; mutateSelected { $0.track = value }
+            guard let id = selection else { return }
+            do { try ProjectEditing.movePhrase(in: &project, id: id, track: value); currentTrack = value }
+            catch { self.error = error.localizedDescription }
         case .relativeTrack(let delta): perform(.track(currentTrack + delta))
         case .findNext: findNext()
         case .cancelPhrase: cancelPhrase()
@@ -440,32 +457,23 @@ struct EditorView: View {
             } else if newPhrase, selectedCue?.text == text { setBoundary(start: false, kind: "out_open"); finishPhrase() }
             else { pendingText = text; pendingEdit = false; addPhrase(kind: "in_open") }
         case .detachSigns:
-            mutateSelected { cue in
-                var signs = cue.anchors
-                for i in signs.indices { signs[i].textOffset = Int((Double(signs[i].frame - cue.start) / Double(cue.end - cue.start) * Double(cue.text.unicodeScalars.count)).rounded()) }
-                cue.signs = signs
-            }
+            mutateSelected { ProjectEditing.detachAllSigns(in: &$0) }
         case .detachSign:
             guard let id = selectedSign else { return }
             mutateSelected { Timeline.detachSign(in: &$0, id: id) }
         case .changeSignType(let kind):
             guard let id = selectedSign else { return }
-            mutateSelected { cue in
-                var signs = cue.anchors
-                guard let index = signs.firstIndex(where: { $0.id == id }) else { return }
-                let valid = index == 0 ? kind.hasPrefix("in_") : index == signs.count - 1 ? kind.hasPrefix("out_") : !kind.hasPrefix("in_") && !kind.hasPrefix("out_")
-                guard valid else { return }
-                signs[index].kind = kind; cue.signs = signs
-            }
+            mutateSelected { Timeline.changeSignType(in: &$0, id: id, kind: kind) }
         case .shiftAnchor(let delta):
-            mutateSelected { cue in
-                var signs = cue.anchors
-                guard let i = signs.firstIndex(where: { $0.id == selectedSign }), i > 0, i < signs.count - 1 else { return }
-                signs[i].textOffset = min(signs[i+1].textOffset, max(signs[i-1].textOffset, signs[i].textOffset + delta)); cue.signs = signs
-            }
+            mutateSelected { Timeline.shiftTextAnchor(in: &$0, id: selectedSign, by: delta) }
         case .mode:
-            if editingPhrase {
-                if newPhrase && frame > (selectedCue?.start ?? frame) { setBoundary(start: false, kind: "out_open") }
+            if let cue = selectedCue, cue.pendingEnd == true {
+                transport.setRate(0)
+                do {
+                    try ProjectEditing.finalizePhrase(in: &project, id: cue.id, frame: frame)
+                    finishPhrase()
+                } catch { self.error = error.localizedDescription }
+            } else if editingPhrase {
                 finishPhrase()
             } else if let cue = project.cues.last(where: { $0.track == currentTrack && $0.start <= frame && $0.end >= frame }) {
                 selection = cue.id; if !newPhrase { originalPhrase = cue }
@@ -479,13 +487,8 @@ struct EditorView: View {
         case .shiftSign(let amount):
             if let cue = selectedCue, let sign = cue.anchors.first(where: { $0.id == selectedSign }) { moveSign(cue.id, sign.id, sign.frame + amount) }
         case .voiceOff: mutateSelected { $0.voice = $0.voice == "off" ? nil : "off" }
-        case .addLoop:
-            guard !project.loops.contains(where: { $0.frame == frame }) else { return }
-            project.loops.append(Marker(frame: frame, label: String(project.loops.count + 1)))
-            project.loops.sort { $0.frame < $1.frame }
-            for i in project.loops.indices { project.loops[i].label = String(i + 1) }
-        case .addShot:
-            if !project.shots.contains(where: { $0.frame == frame }) { project.shots.append(Marker(frame: frame, label: String(project.shots.count + 1))) }
+        case .addLoop: ProjectEditing.addMarker(in: &project, frame: frame, loop: true)
+        case .addShot: ProjectEditing.addMarker(in: &project, frame: frame, loop: false)
         case .markPosition:
             if let label = prompt("Marquer cette position", initial: "Position \((project.positions?.count ?? 0) + 1)") {
                 if project.positions == nil { project.positions = [] }
@@ -528,7 +531,10 @@ struct EditorView: View {
     }
     private func beginEditing(_ cue: Cue, at target: Int) {
         transport.setRate(0)
-        if !editingPhrase || selection != cue.id { originalPhrase = cue; newPhrase = false }
+        if !editingPhrase || selection != cue.id {
+            ProjectSession.shared.endEditingGroup(); ProjectSession.shared.beginEditingGroup()
+            originalPhrase = cue; newPhrase = false
+        }
         selection = cue.id; currentTrack = cue.track; selectedSign = nil
         caret = Timeline.textOffset(in: cue, at: target)
         editingPhrase = true; detectionMode = false
@@ -539,37 +545,49 @@ struct EditorView: View {
     }
     private func addPhrase(kind: String) {
         transport.setRate(0)
-        assigningExisting = false; pendingKind = kind; chosenRole = selectedCue?.roleID ?? project.roles.first?.id
+        pasteCandidate = nil; assigningExisting = false; pendingKind = kind; chosenRole = selectedCue?.roleID ?? project.roles.first?.id
         panel = .chooseRole
     }
     private func confirmRole() {
         guard let role = chosenRole else { return }
         if assigningExisting { mutateSelected { $0.roleID = role }; assigningExisting = false; panel = nil; return }
-        guard !project.cues.contains(where: { $0.track == currentTrack && $0.start <= frame && $0.end > frame }) else {
-            error = "Une phrase occupe déjà cette position sur la piste."; return
+        if let candidate = pasteCandidate {
+            do {
+                let cue = try ProjectEditing.paste(candidate, into: &project, frame: pasteFrame, track: pasteTrack, roleID: role)
+                selection = cue.id; selectedSign = nil; pasteCandidate = nil; panel = nil
+            } catch { self.error = error.localizedDescription }
+            return
         }
-        var cue = Cue(roleID: role, start: frame, end: frame + 3 * project.framesPerSecond, text: pendingText)
-        let nextPhrase = project.cues.filter { $0.track == currentTrack && $0.start > frame }.map(\.start).min()
-        let nextLoop = project.loops.filter { $0.frame > frame }.map(\.frame).min()
-        cue.end = min(cue.end, nextPhrase ?? cue.end, nextLoop ?? cue.end)
-        cue.track = currentTrack; cue.signs = cue.anchors; cue.signs?[0].kind = pendingKind
-        project.cues.append(cue); selection = cue.id; selectedSign = nil
+        ProjectSession.shared.beginEditingGroup()
+        let cue: Cue
+        do { cue = try ProjectEditing.createPhrase(in: &project, role: role, frame: frame, track: currentTrack, text: pendingText, kind: pendingKind) }
+        catch { ProjectSession.shared.endEditingGroup(); self.error = error.localizedDescription; return }
+        selection = cue.id; selectedSign = nil
         originalPhrase = nil; newPhrase = true; editingPhrase = pendingEdit; detectionMode = !pendingEdit
         caret = cue.text.unicodeScalars.count
         let autoClose = closeReactions && !pendingText.isEmpty && !pendingEdit
         pendingText = ""; panel = nil
-        if autoClose { finishPhrase() }
+        if autoClose {
+            try? ProjectEditing.finalizePhrase(in: &project, id: cue.id, frame: cue.end)
+            finishPhrase()
+        }
     }
     private func finishPhrase() {
+        ProjectSession.shared.endEditingGroup()
         editingPhrase = false; detectionMode = true; originalPhrase = nil; newPhrase = false
         NSApplication.shared.keyWindow?.makeFirstResponder(nil)
     }
     private func cancelPhrase() {
-        if newPhrase { project.cues.removeAll { $0.id == selection }; selection = nil }
-        else if let originalPhrase, let index = project.cues.firstIndex(where: { $0.id == originalPhrase.id }) { project.cues[index] = originalPhrase }
+        ProjectSession.shared.cancelEditingGroup()
+        if selectedCue == nil { selection = nil; selectedSign = nil }
         finishPhrase()
     }
     private func setBoundary(start: Bool, kind: String?) {
+        if !start, let id = selection {
+            do { try ProjectEditing.finalizePhrase(in: &project, id: id, frame: frame, kind: kind ?? "out_open") }
+            catch { self.error = error.localizedDescription }
+            return
+        }
         guard let index = project.cues.firstIndex(where: { $0.id == selection }) else { return }
         do {
             guard (start ? frame < project.cues[index].end : frame > project.cues[index].start) else { throw ProjectError.invalid("La fin doit suivre le début.") }
@@ -671,26 +689,22 @@ struct EditorView: View {
     private func copyPhrase(cut: Bool) {
         guard let cue = selectedCue, let data = try? JSONEncoder().encode(cue) else { return }
         let board = NSPasteboard.general; board.clearContents()
-        board.setData(data, forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase"))
+        guard board.setData(data, forType: NSPasteboard.PasteboardType(ProjectEditing.phraseClipboardType)) else { error = "Copie de la phrase impossible."; return }
         board.setString(cue.text, forType: .string)
         if cut { perform(.deletePhrase) }
     }
     private func pastePhrase() {
-        guard let data = NSPasteboard.general.data(forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase")),
-              var cue = try? JSONDecoder().decode(Cue.self, from: data) else { return }
-        let delta = frame - cue.start
-        var signs = cue.anchors
-        cue.id = UUID(); cue.sourceIndex = nil; cue.track = currentTrack
-        cue.start += delta; cue.end += delta
-        for i in signs.indices { signs[i].id = UUID(); signs[i].sourceIndex = nil; signs[i].frame += delta }
-        cue.signs = signs
-        guard !project.cues.contains(where: { $0.track == currentTrack && $0.start < cue.end && $0.end > cue.start }),
-              !project.loops.contains(where: { $0.frame > cue.start && $0.frame < cue.end }) else { NSSound.beep(); return }
-        if !project.roles.contains(where: { $0.id == cue.roleID }) { cue.roleID = project.roles.first?.id }
-        var candidate = project; candidate.cues.append(cue)
-        guard (try? candidate.validate()) != nil else { NSSound.beep(); return }
-        project = candidate; selection = cue.id; chosenRole = cue.roleID
-        originalPhrase = nil; newPhrase = false; assigningExisting = true; panel = .chooseRole
+        guard let data = NSPasteboard.general.data(forType: NSPasteboard.PasteboardType(ProjectEditing.phraseClipboardType))
+                ?? NSPasteboard.general.data(forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase")),
+              let cue = try? JSONDecoder().decode(Cue.self, from: data) else { return }
+        if editingPhrase { finishPhrase() }
+        transport.setRate(0)
+        do { try ProjectEditing.validatePaste(cue, in: project, frame: frame, track: currentTrack) }
+        catch { self.error = error.localizedDescription; return }
+        pasteFrame = frame; pasteTrack = currentTrack
+        pasteCandidate = cue
+        chosenRole = project.roles.contains(where: { $0.id == cue.roleID }) ? cue.roleID : project.roles.first?.id
+        assigningExisting = false; panel = .chooseRole
     }
     private func chooseMedia(audio: Bool) {
         let picker = NSOpenPanel(); picker.allowedContentTypes = audio ? [.audio] : [.movie]; picker.allowsMultipleSelection = false

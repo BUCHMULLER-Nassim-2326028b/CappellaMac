@@ -75,6 +75,18 @@ La sauvegarde automatique est désactivable et son intervalle est réglable.
 Ses copies de récupération sont stockées dans le dossier de données utilisateur
 Cappella/Autosaves, séparément du fichier original.
 
+## Édition des phrases
+
+Une nouvelle phrase reste ouverte pendant la saisie et la lecture. Haut et Bas
+interceptent le champ de texte pour lancer la lecture normale ou inverse.
+Entrée ferme ensuite la phrase exactement au playhead. La fin de prévisualisation
+interne n'apparaît pas comme un signe de sortie.
+
+Le clic droit sur une piste vide propose Coller. Le point cliqué devient la
+destination au choix de cette action, puis le rôle est confirmé avant insertion.
+Le collage à travers une boucle est autorisé. L'historique et les règles
+d'édition sont partagés avec Mac.
+
 ## Contrôle de la lecture
 
 Mac et Windows partagent les vitesses du Shuttle, de x0.125 à x10 dans chaque
@@ -91,22 +103,30 @@ désactivée sur les deux plateformes : son protocole matériel n'est pas porté
 
 ## Audio et limites
 
-Le fichier audio externe remplace le son de la vidéo. Les AIFF/AIFC PCM pris en
-charge sont préparés en WAV ; quatre canaux sont séparés en deux paires stéréo VO
-et VI. Les fichiers source restent inchangés. Les dispositions de quatre flux mono
-et les formats compressés AIFC ne sont pas équivalents au moteur Mac.
+Le son séparé remplace celui de la vidéo. Les décodeurs natifs fournissent des
+flux PCM au Core, qui conserve l'ordre des canaux : deux canaux donnent VO/VI
+mono ; quatre canaux donnent VO/VI stéréo, y compris quatre flux mono. Les flux
+regroupés doivent avoir la même cadence et le même format PCM. Les fichiers
+AIFF/AIFC PCM sont convertis par le Core ; les autres codecs dépendent de Media
+Foundation.
 
-Dès le chargement du média, une tâche de fond prépare une copie PCM inversée
-des pistes audio avec Media Foundation. La lecture arrière réutilise cette copie
-à vitesse positive pendant que la vidéo recule.
-Le son externe conserve la priorité et le choix VO/VI reste actif. L'image recule
-immédiatement, y compris lors d'un changement de direction pendant la lecture.
-Si la lecture arrière est demandée avant la fin de cette préparation, le son
-rejoint la position courante dès qu'il est prêt. Une erreur de préparation en
-arrière-plan ne coupe pas la lecture normale ; elle est signalée si le retour
-arrière est demandé.
+La lecture normale ouvre directement le média, sans attendre le cache inversé.
+Pour les WAV/AIFF/AIFC PCM, WindowsPCMSource fournit à WinRT de petits blocs lus
+à la demande dans le fichier d'origine ; le Core sélectionne les canaux VO/VI et
+adapte l'ordre des octets sans créer de fichier de lecture avant. Les PCM entiers
+conservent leur profondeur d'origine ; les PCM flottants sont fournis en PCM
+32 bits. Les autres formats sont confiés directement au lecteur natif.
+
+Le cache est réservé au reverse et commence à la première demande de marche
+arrière. Sa préparation s'exécute en arrière-plan et ne remplace, ne recharge,
+ni ne met en pause les lecteurs de marche avant à son achèvement. Un cache terminé
+est réutilisé avant tout décodage lors d'une demande ultérieure. L'image recule
+pendant cette première préparation et le son rejoint la position courante dès
+qu'il est prêt. Changer de vitesse dans le même sens ne repositionne pas les
+lecteurs. Le son externe conserve la priorité et le choix VO/VI reste actif.
 La préparation travaille par blocs, respecte l'annulation et supprime
-ses fichiers temporaires au déchargement. Elle nécessite de l'espace disque ;
+ses fichiers de décodage temporaires au déchargement. Le cache inversé terminé reste
+dans le répertoire temporaire système pour éviter une nouvelle préparation. Elle nécessite de l'espace disque ;
 chaque piste WAV de sortie est limitée à 4 Go. Les codecs et la synchronisation
 doivent encore être validés sur des médias réels.
 

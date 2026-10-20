@@ -184,9 +184,7 @@ struct PropertiesPanel: View {
         else {
             do {
                 let imported = try DetX.read(Data(contentsOf: url), fps: project.framesPerSecond)
-                for candidate in imported.roles where !project.roles.contains(where: { $0.name.localizedCaseInsensitiveCompare(candidate.name) == .orderedSame }) {
-                    var role = candidate; role.id = UUID(); role.sourceID = nil; project.roles.append(role)
-                }
+                ProjectEditing.mergeRoles(imported.roles, into: &project)
                 if project.metadata == nil { project.metadata = [:] }; project.metadata?["roles-file"] = url.path
             } catch { fileError = error.localizedDescription }
         }
@@ -235,9 +233,7 @@ struct RoleImportPanel: View {
                 Button("Annuler") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Importer") {
-                    for candidate in candidates where selected.contains(candidate.id) && !exists(candidate) {
-                        var role = candidate; role.id = UUID(); role.sourceID = nil; project.roles.append(role)
-                    }
+                    ProjectEditing.mergeRoles(candidates.filter { selected.contains($0.id) }, into: &project)
                     dismiss()
                 }.keyboardShortcut(.defaultAction).disabled(selected.isEmpty)
             }

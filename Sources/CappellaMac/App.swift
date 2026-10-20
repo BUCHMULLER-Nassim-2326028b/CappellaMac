@@ -10,7 +10,12 @@ struct CappellaMacApp: App {
     @NSApplicationDelegateAdaptor(StartupDelegate.self) private var startupDelegate
     @StateObject private var session = ProjectSession.shared
 
-    init() { UserDefaults.standard.set(["fr"], forKey: "AppleLanguages") }
+    init() {
+        UserDefaults.standard.set(["fr"], forKey: "AppleLanguages")
+        TimelineFont.register()
+        let preferences = ApplicationPreferences.load()
+        preferences.save()
+    }
 
     var body: some Scene {
         Window("Cappella", id: "editor") {

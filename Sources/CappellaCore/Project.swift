@@ -24,6 +24,8 @@ public struct Cue: Codable, Identifiable, Equatable {
     public var track: Int = 0
     public var signs: [SyncSign]?
     public var voice: String?
+    public var pendingEnd: Bool?
+    public var visibleAnchors: [SyncSign] { pendingEnd == true ? Array(anchors.dropLast()) : anchors }
     public init(id: UUID = UUID(), roleID: UUID? = nil, start: Int, end: Int, text: String = "") {
         self.id = id; self.roleID = roleID; self.start = start; self.end = end; self.text = text
     }

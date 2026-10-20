@@ -6,10 +6,10 @@ import UWP
 import WindowsFoundation
 
 extension WindowsEditor {
-    func chooseRole() async -> UUID? {
+    func chooseRole(preferred: UUID? = nil) async -> UUID? {
         let list = ListView(); list.height = 280; list.minWidth = 0
         for role in self.document.project.roles { list.items.append(role.name) }
-        list.selectedIndex = self.document.project.roles.isEmpty ? -1 : Int32(self.document.project.roles.firstIndex { $0.id == self.document.selectedCue?.roleID } ?? 0)
+        list.selectedIndex = self.document.project.roles.isEmpty ? -1 : Int32(self.document.project.roles.firstIndex { $0.id == (preferred ?? self.document.selectedCue?.roleID) } ?? 0)
         let portrait = Image(); portrait.width = 128; portrait.height = 128; portrait.stretch = .uniform
         func updatePortrait() {
             let index = Int(list.selectedIndex)

@@ -101,7 +101,7 @@ enum PhraseContextMenu {
         menu.addItem(.separator())
         menu.addItem(item("Couper", .cutPhrase))
         menu.addItem(item("Copier", .copyPhrase))
-        menu.addItem(item("Coller", .pastePhrase, enabled: NSPasteboard.general.data(forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase")) != nil))
+        menu.addItem(item("Coller", .pastePhrase, enabled: NSPasteboard.general.data(forType: NSPasteboard.PasteboardType(ProjectEditing.phraseClipboardType)) != nil || NSPasteboard.general.data(forType: NSPasteboard.PasteboardType("org.cappella-rewrite.phrase")) != nil))
         menu.addItem(.separator())
         let internalSign = sign.map { !$0.kind.hasPrefix("in_") && !$0.kind.hasPrefix("out_") } ?? false
         menu.addItem(item("Supprimer le signe", .deleteSign, enabled: internalSign))

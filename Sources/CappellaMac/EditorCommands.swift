@@ -9,6 +9,7 @@ func cappellaFunctionKey(_ number: Int) -> KeyEquivalent {
 enum EditorAction {
     case openMedia, openVI, importDetX, importRoles, exportDetX, exportScript, exportCrossTable
     case roles, changeRole, properties, find, goTimecode, shift, timestamp, check, preferences
+    case undo, redo
     case playPause, stop, step(Int), rate(Float), shuttle(Double), jog(Int), navigate(String, Int)
     case addPhrase, deletePhrase, deleteSelection, track(Int), mode, addSign(String), deleteSign, shiftSign(Int), voiceOff
     case addLoop, addShot, markPosition, positions, zoom(Double), grid, detection, fullScreen, projection
@@ -28,6 +29,8 @@ struct EditorCommandState: Equatable {
     var usingVI = false
     var detectionMode = false
     var playbackRate = 0.0
+    var canUndo = false
+    var canRedo = false
 }
 
 /// One stable object per document prevents each video frame from publishing a
@@ -52,6 +55,10 @@ struct CappellaCommands: Commands {
     var body: some Commands {
         let _ = ExternalFileOpenRouter.shared.installWindowOpener { openWindow(id: "editor") }
         CappellaFileCommands()
+        CommandGroup(replacing: .undoRedo) {
+            Button("Annuler") { run(.undo) }.keyboardShortcut("z", modifiers: .command).disabled(editor?.state.canUndo != true)
+            Button("Rétablir") { run(.redo) }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(editor?.state.canRedo != true)
+        }
         CommandGroup(after: .pasteboard) {
             Divider()
             Button("Rechercher…") { run(.find) }.keyboardShortcut("f", modifiers: .control)
@@ -204,9 +211,11 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                     case 36, 76: break
                     default:
                         switch key.lowercased() {
-                        case "c" where !typing: action = .copyPhrase
-                        case "x" where !typing: action = .cutPhrase
-                        case "v" where !typing && !shift: action = .pastePhrase
+                        case "z": action = shift ? .redo : .undo
+                        case "y": action = .redo
+                        case "c" where !typing || ((self.window?.firstResponder as? DialogueTextEditor.FocusedTextView)?.selectedRange().length == 0): action = .copyPhrase
+                        case "x" where !typing || ((self.window?.firstResponder as? DialogueTextEditor.FocusedTextView)?.selectedRange().length == 0): action = .cutPhrase
+                        case "v" where !shift && (!typing || (self.window?.firstResponder is DialogueTextEditor.FocusedTextView && (NSPasteboard.general.data(forType: .init(ProjectEditing.phraseClipboardType)) != nil || NSPasteboard.general.data(forType: .init("org.cappella-rewrite.phrase")) != nil))): action = .pastePhrase
                         case "e": action = shift ? nil : .exportScript
                         case "r": action = .roles
                         case "f": action = .find
@@ -252,8 +261,8 @@ struct EditorKeyboardMonitor: NSViewRepresentable {
                     case 49 where !typing: action = .playPause
                     case 123 where !typing || alt: action = alt ? .step(-1) : .navigate("sign", -1)
                     case 124 where !typing || alt: action = alt ? .step(1) : .navigate("sign", 1)
-                    case 126 where !typing: action = .playPause
-                    case 125 where !typing: action = .rate(-1)
+                    case 126: action = .rate(1)
+                    case 125: action = .rate(-1)
                     case 117 where !typing: action = .deleteSelection
                     default:
                         if !typing {

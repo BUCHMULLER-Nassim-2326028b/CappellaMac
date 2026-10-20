@@ -4,11 +4,11 @@
 
 | Dossier | Responsabilité |
 |---|---|
-| Sources/CappellaCore | Modèle de projet, DetX, signes, règles d'édition, timecodes, routage audio et préférences |
+| Sources/CappellaCore | Modèle, DetX, édition et brouillons, historique, sauvegardes, recherche, navigation, préparation PCM, routage VO/VI et préférences |
 | Sources/CappellaSession | Session Mac, remplacement/enregistrement des documents, événements Finder et adaptation des menus AppKit |
 | Sources/CappellaMac | Interface SwiftUI/AppKit, transport AVFoundation, édition sur bande, projection, enregistrement et analyse des plans |
 | Sources/CappellaWindows | Interface WinUI 3, document Windows, transport multimédia et édition sur bande |
-| Sources/CWindowsInterop | Rattachement des sélecteurs à la fenêtre et décodage audio Media Foundation pour la lecture inverse |
+| Sources/CWindowsInterop | Rattachement des sélecteurs à la fenêtre et décodage audio Media Foundation vers PCM |
 | windows/Support | Support Swift-WinRT intégré aux projections générées |
 | packaging | Métadonnées du bundle Mac et ressources distribuées |
 | Tests | Tests du moteur commun et des adaptateurs de chaque plateforme |
@@ -16,6 +16,31 @@
 CappellaSession réexporte CappellaCore pour ses clients Mac. Swift Package Manager
 inclut automatiquement les fichiers Swift de chaque cible ; les fichiers propres
 à Windows restent dans la cible Windows.
+
+## Logique métier commune
+
+| Composant | Règles communes |
+|---|---|
+| ProjectEditing | Création, collage, déplacement et suppression des phrases ; fermeture explicite au playhead ; repères triés/renumérotés ; fusion des rôles |
+| ProjectHistory | Annuler/rétablir, groupes de saisie et annulation d'une transaction |
+| ProjectFile / AutomaticBackup | Lecture/écriture, normalisation et récupération avec une identité unique par projet ouvert |
+| AudioRouting / PCMChannelPreparation | VO/VI par canaux logiques, regroupement des flux, silence de remplissage et inversion par trames d'échantillons |
+| PCMPlaybackCache | Lecture PCM WAV/AIFF/AIFC directe, lecture normale par blocs sans cache ; cache réservé au reverse et réutilisé avant décodage |
+| ApplicationPreferences | Valeurs enregistrées et validation commune des limites |
+| DialogueSearch / ControlNavigation / PlaybackControls | Recherche, navigation et commandes de lecture |
+
+WindowsDocument et ProjectSession restent des adaptateurs de présentation :
+callbacks WinUI ou notifications Combine, choix de fichiers, demandes de
+confirmation et intégration des fenêtres. AVFoundation et Media Foundation
+décodent les médias dans leurs formats natifs ; les règles sur les échantillons
+PCM, leurs canaux et leur inversion sont dans le Core. Les codecs disponibles
+restent dépendants du système.
+
+Une phrase nouvellement saisie porte pendingEnd jusqu'à sa fermeture explicite
+avec Entrée ou un signe de sortie. La borne interne de prévisualisation ne crée
+pas de signe de fin visible ou exporté. Les brouillons avec texte sont conservés
+dans les fichiers DetX sans inventer de sortie. Le collage à travers une boucle
+est autorisé ; le chevauchement d'une autre phrase reste contrôlé.
 
 ## Interface Windows
 
@@ -41,7 +66,7 @@ Ses extensions répartissent les responsabilités :
 | WindowsPreferencesPanel | Préférences Général, Bande rythmo et Vidéo |
 | WindowsRolesPanel | Choix, gestion et portraits des rôles |
 | WindowsProjectMedia | Chargement et déchargement des médias au changement de projet |
-| WindowsMedia / WindowsAudioPreparation / WindowsReverseAudio | Lecture, préparation de l'audio externe et cache PCM inversé |
+| WindowsMedia / WindowsAudioPreparation / WindowsReverseAudio | Lecture directe du média, flux PCM à la demande et cache réservé au reverse |
 | WindowsDiagnostics | Marqueurs de lancement utilisés par les contrôles CI |
 
 PlaybackControls partage les quatorze vitesses du Shuttle et la vitesse du Jog.
@@ -74,9 +99,9 @@ WindowsSettings écrit les préférences et les proportions des panneaux dans
 %APPDATA%/Cappella/preferences.json. Les valeurs de préférence à enregistrer
 sont définies une seule fois dans ApplicationPreferences.
 
-Les sauvegardes automatiques sont des copies de récupération ; elles ne remplacent
-pas le document source. Leurs emplacements sont définis dans ProjectSession sur
-Mac et WindowsDocument sur Windows.
+AutomaticBackup définit les intervalles et les noms uniques des copies de
+récupération. Les adaptateurs choisissent leur dossier et fournissent la position
+courante ; une copie de récupération ne remplace jamais le document source.
 
 ## Limites connues
 

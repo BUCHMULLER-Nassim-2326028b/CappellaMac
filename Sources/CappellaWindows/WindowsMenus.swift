@@ -169,8 +169,7 @@ extension WindowsEditor {
     func addMarker(loop: Bool) {
         perform {
             try self.document.commit { project in
-                if loop { if !project.loops.contains(where: { $0.frame == self.document.frame }) { project.loops.append(Marker(frame: self.document.frame, label: String(project.loops.count + 1))) } }
-                else if !project.shots.contains(where: { $0.frame == self.document.frame }) { project.shots.append(Marker(frame: self.document.frame, label: String(project.shots.count + 1))) }
+                ProjectEditing.addMarker(in: &project, frame: self.document.frame, loop: loop)
             }
         }
     }
@@ -180,14 +179,21 @@ extension WindowsEditor {
     }
     func detachSigns() {
         perform { try self.document.mutateCue { cue in
-            var signs = cue.anchors
-            for index in signs.indices { signs[index].textOffset = Int((Double(signs[index].frame - cue.start) / Double(max(1, cue.end - cue.start)) * Double(cue.text.unicodeScalars.count)).rounded()) }
-            cue.signs = signs
+            ProjectEditing.detachAllSigns(in: &cue)
         } }
     }
     func contextMenu(_ args: RightTappedRoutedEventArgs?) {
         guard let args, let point = try? args.getPosition(bandContainer) else { return }
-        let (cue, sign, _, _) = hit(point); guard let cue else { return }
+        let (cue, sign, clickedTrack, target) = hit(point)
+        guard let cue else {
+            let menu = MenuFlyout()
+            menu.items.append(asyncItem("Coller") { [unowned self] in
+                media.stop(); self.document.selectTrack(clickedTrack); seek(target)
+                await pastePhrase()
+            })
+            try? menu.showAt(bandContainer, point); args.handled = true
+            return
+        }
         self.document.selection = cue.id; self.document.track = cue.track; self.document.signSelection = sign?.id
         let menu = MenuFlyout()
         menu.items.append(menuItem("Supprimer la phrase") { [unowned self] in perform { try self.document.deletePhrase() } })
@@ -200,7 +206,9 @@ extension WindowsEditor {
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(menuItem("Couper") { [unowned self] in copyPhrase(cut: true) })
         menu.items.append(menuItem("Copier") { [unowned self] in copyPhrase() })
-        menu.items.append(asyncItem("Coller") { [unowned self] in await pastePhrase() })
+        menu.items.append(asyncItem("Coller") { [unowned self] in
+            media.stop(); self.document.selectTrack(clickedTrack); seek(target); await pastePhrase()
+        })
         menu.items.append(MenuFlyoutSeparator())
         let remove = menuItem("Supprimer le signe") { [unowned self] in perform { try self.document.removeSign() } }
         remove.isEnabled = sign != nil && sign?.id != cue.anchors.first?.id && sign?.id != cue.anchors.last?.id
@@ -210,8 +218,7 @@ extension WindowsEditor {
         let types = MenuFlyoutSubItem(); types.text = "Changer le type"; types.isEnabled = sign != nil
         for (name, kind) in signKinds where sign?.kind.hasPrefix("in_") == true ? kind.hasPrefix("in_") : sign?.kind.hasPrefix("out_") == true ? kind.hasPrefix("out_") : !kind.hasPrefix("in_") && !kind.hasPrefix("out_") {
             types.items.append(menuItem(name) { [unowned self] in perform { try self.document.mutateCue { cue in
-                var signs = cue.anchors
-                if let index = signs.firstIndex(where: { $0.id == self.document.signSelection }) { signs[index].kind = kind; cue.signs = signs }
+                if let id = self.document.signSelection { Timeline.changeSignType(in: &cue, id: id, kind: kind) }
             } } })
         }
         menu.items.append(types); try? menu.showAt(bandContainer, point); args.handled = true
@@ -228,6 +235,17 @@ extension WindowsEditor {
     }
     func handleShortcut(key: Int, ctrl: Bool, alt: Bool, shift: Bool, isRepeat: Bool) -> Bool {
         guard !dialogShowing, !isClosed else { return false }
+        if ctrl && !alt && !shift {
+            if key == 86, hasPhraseClipboard {
+                if !isRepeat { Task { await pastePhrase() } }
+                return true
+            }
+            if [67, 88].contains(key), self.document.selectedCue != nil,
+               !timelineTextHasFocus || textEditor?.selectionLength == 0 {
+                if !isRepeat { copyPhrase(cut: key == 88) }
+                return true
+            }
+        }
         // Function-key commands and deliberate Ctrl+Alt arrows are not AltGr.
         if ctrl && alt && [120, 121].contains(key) {
             if key == 120 { self.document.preferences.showDetection.toggle() }
@@ -248,8 +266,8 @@ extension WindowsEditor {
             // AltGr is reported as Ctrl+Alt on Windows. Let native text services
             // translate it, together with dead keys and text-editing shortcuts.
             if ctrl && alt { return false }
-            if !ctrl && !alt && ![13, 27].contains(key) { return false }
-            if ctrl && !alt && ([65, 67, 88, 90, 89, 8, 35, 36, 37, 39].contains(key) || (key == 86 && !shift)) { return false }
+            if !ctrl && !alt && ![13, 27, 38, 40].contains(key) { return false }
+            if ctrl && !alt && ([65, 67, 88, 8, 35, 36, 37, 39].contains(key) || (key == 86 && !shift)) { return false }
         }
         if ctrl {
             // Resolve +, - and * on both the main keyboard and numeric keypad.

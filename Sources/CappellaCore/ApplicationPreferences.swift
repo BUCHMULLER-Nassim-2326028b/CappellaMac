@@ -1,6 +1,7 @@
 import Foundation
 
 public struct ApplicationPreferences: Equatable {
+    public static let defaultFontName = "PreludeFLF"
     public var checkUpdates = false
     public var prefixCopies = true
     public var appearance = "light"
@@ -9,7 +10,7 @@ public struct ApplicationPreferences: Equatable {
     public var closeReactions = false
     public var showControlAtLaunch = false
     public var videoOffsetMilliseconds = 0.0
-    public var fontName = "Apple Chancery"
+    public var fontName = Self.defaultFontName
     public var fontSize = 28.0
     public var pixelsPerSecond = 120.0
     public var bandHeight = 146.0
@@ -17,6 +18,16 @@ public struct ApplicationPreferences: Equatable {
     public var showDetection = true
 
     public init() {}
+    public func validate() throws {
+        guard ["light", "dark"].contains(appearance), (1...120).contains(saveInterval),
+              fontSize.isFinite, (16...42).contains(fontSize),
+              pixelsPerSecond.isFinite, (15...800).contains(pixelsPerSecond),
+              bandHeight.isFinite, bandHeight >= 120,
+              videoOffsetMilliseconds.isFinite, (-1000...1000).contains(videoOffsetMilliseconds),
+              !fontName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ProjectError.invalid("Vérifiez les valeurs : intervalle 1–120 min, taille 16–42, échelle 15–800 px/s, hauteur ≥ 120 px, décalage ±1000 ms.")
+        }
+    }
     public static func load(from defaults: UserDefaults = .standard) -> Self {
         var value = Self()
         #if os(Windows)
@@ -44,6 +55,10 @@ public struct ApplicationPreferences: Equatable {
         value.showControlAtLaunch = bool("video.showControlAtLaunch", false)
         value.videoOffsetMilliseconds = min(1000, max(-1000, number("video.offsetMilliseconds", 0)))
         value.fontName = string("rythmo.font") ?? value.fontName
+        if object("rythmo.fontDefaultVersion") == nil,
+           ["Apple Chancery", "Snell Roundhand", "Segoe Script", "Monotype Corsiva"].contains(value.fontName) {
+            value.fontName = Self.defaultFontName
+        }
         value.fontSize = number("rythmo.fontSize", 28)
         #if os(Windows)
         // Each platform stores its own horizontal scale in logical pixels/second.
@@ -74,6 +89,7 @@ public struct ApplicationPreferences: Equatable {
             "video.showControlAtLaunch": showControlAtLaunch,
             "video.offsetMilliseconds": min(1000, max(-1000, videoOffsetMilliseconds)),
             "rythmo.font": fontName,
+            "rythmo.fontDefaultVersion": 1,
             "rythmo.fontSize": fontSize,
             "rythmo.pixelsPerSecond": pixelsPerSecond,
             "rythmo.height": bandHeight,

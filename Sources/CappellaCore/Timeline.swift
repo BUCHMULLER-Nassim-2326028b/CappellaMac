@@ -4,6 +4,7 @@ public struct TimedText: Equatable {
     public var start: Int
     public var end: Int
     public var text: String
+    public var naturalWidth = false
 }
 
 public enum Timeline {
@@ -15,7 +16,7 @@ public enum Timeline {
     }
 
     public static func snapFrames(in project: Project) -> [Int] {
-        let signs = project.cues.flatMap { $0.anchors.map(\.frame) }
+        let signs = project.cues.flatMap { $0.visibleAnchors.map(\.frame) }
         return Array(Set(signs + project.loops.map(\.frame) + project.shots.map(\.frame))).sorted()
     }
 
@@ -23,7 +24,8 @@ public enum Timeline {
         direction > 0 ? frames.lazy.filter { $0 > current }.min() : frames.lazy.filter { $0 < current }.max()
     }
 
-    public static func segments(_ cue: Cue) -> [TimedText] {
+    public static func segments(_ cue: Cue, editing: Bool = false) -> [TimedText] {
+        if editing && cue.pendingEnd == true { return [TimedText(start: cue.start, end: cue.end, text: cue.text, naturalWidth: true)] }
         let anchors = cue.anchors
         return zip(anchors, anchors.dropFirst()).compactMap { left, right in
             guard right.frame > left.frame, left.textOffset >= 0,
@@ -31,7 +33,8 @@ public enum Timeline {
             let scalars = cue.text.unicodeScalars
             let a = scalars.index(scalars.startIndex, offsetBy: left.textOffset)
             let b = scalars.index(scalars.startIndex, offsetBy: right.textOffset)
-            return TimedText(start: left.frame, end: right.frame, text: String(scalars[a..<b]))
+            return TimedText(start: left.frame, end: right.frame, text: String(scalars[a..<b]),
+                naturalWidth: cue.pendingEnd == true && right.id == anchors.last?.id)
         }
     }
 
@@ -43,6 +46,20 @@ public enum Timeline {
         return left.textOffset + Int((Double(right.textOffset - left.textOffset) * fraction).rounded())
     }
 
+    public static func changeSignType(in cue: inout Cue, id: UUID, kind: String) {
+        var signs = cue.anchors
+        guard let index = signs.firstIndex(where: { $0.id == id }) else { return }
+        let valid = index == 0 ? kind.hasPrefix("in_") :
+            index == signs.count - 1 ? kind.hasPrefix("out_") : !kind.hasPrefix("in_") && !kind.hasPrefix("out_")
+        guard valid else { return }
+        signs[index].kind = kind; cue.signs = signs
+    }
+    public static func shiftTextAnchor(in cue: inout Cue, id: UUID?, by delta: Int) {
+        var signs = cue.anchors
+        guard let index = signs.firstIndex(where: { $0.id == id }), index > 0, index < signs.count - 1 else { return }
+        signs[index].textOffset = min(signs[index + 1].textOffset, max(signs[index - 1].textOffset, signs[index].textOffset + delta))
+        cue.signs = signs
+    }
     public static func detachSign(in cue: inout Cue, id: UUID) {
         var signs = cue.anchors
         guard let index = signs.firstIndex(where: { $0.id == id }), index > 0, index < signs.count - 1 else { return }

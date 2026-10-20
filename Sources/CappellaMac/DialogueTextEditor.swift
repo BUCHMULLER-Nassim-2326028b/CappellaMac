@@ -1,20 +1,21 @@
 import SwiftUI
 import AppKit
+import CappellaCore
 
 /// Native input on the band: keep selection/IME/undo in NSTextView, and update
 /// the model only for actual edits, never by rewriting the string every frame.
 struct DialogueTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var caret: Int
-    var fontName = "Apple Chancery"
+    var fontName = ApplicationPreferences.defaultFontName
     var fontSize = 28.0
     var underlined = false
     var menuProvider: (() -> NSMenu?)? = nil
 
     /// Measure the same font used by NSTextView, including space for its caret.
     /// The band editor grows with the text, independently of cue duration.
-    static func fittingWidth(_ text: String, fontName: String = "Apple Chancery", fontSize: Double = 28) -> CGFloat {
-        let font = NSFont(name: fontName, size: CGFloat(fontSize)) ?? .systemFont(ofSize: CGFloat(fontSize))
+    static func fittingWidth(_ text: String, fontName: String = ApplicationPreferences.defaultFontName, fontSize: Double = 28) -> CGFloat {
+        let font = TimelineFont.font(name: fontName, size: fontSize)
         let lines = text.components(separatedBy: .newlines)
         let width = lines.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
         return max(8, ceil(width) + 8)
@@ -28,7 +29,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         let view = FocusedTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 40))
         view.menuProvider = menuProvider
         view.isEditable = true; view.isSelectable = true; view.isRichText = false; view.allowsUndo = true
-        view.font = NSFont(name: fontName, size: CGFloat(fontSize)) ?? .systemFont(ofSize: CGFloat(fontSize))
+        view.font = TimelineFont.font(name: fontName, size: fontSize)
         view.backgroundColor = .black; view.textColor = .white; view.insertionPointColor = .white
         view.textContainerInset = NSSize(width: 2, height: 0)
         view.isAutomaticQuoteSubstitutionEnabled = false; view.isAutomaticDashSubstitutionEnabled = false
@@ -58,7 +59,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         if view.selectedRange().length == 0, view.selectedRange().location != target {
             view.setSelectedRange(NSRange(location: target, length: 0)); view.scrollRangeToVisible(view.selectedRange())
         }
-        let font = NSFont(name: fontName, size: CGFloat(fontSize)) ?? .systemFont(ofSize: CGFloat(fontSize))
+        let font = TimelineFont.font(name: fontName, size: fontSize)
         if view.font != font { view.font = font }
         view.sizeToFit()
         view.scrollRangeToVisible(view.selectedRange())
@@ -84,7 +85,7 @@ struct DialogueTextEditor: NSViewRepresentable {
         }
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !updating, let view = notification.object as? NSTextView else { return }
-            updateCaret(view)
+            if view.selectedRange().length == 0 { updateCaret(view) }
         }
     }
     final class FocusedTextView: NSTextView {

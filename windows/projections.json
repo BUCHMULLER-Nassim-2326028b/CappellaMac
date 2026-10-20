@@ -1,5 +1,6 @@
 {
   "include": [
+    "Windows.Media.Core.AudioStreamDescriptor",
     "Microsoft.UI.Dispatching.DispatcherQueueController",
     "Microsoft.UI.Input.InputSystemCursor",
     "Microsoft.UI.Windowing.AppWindow",
