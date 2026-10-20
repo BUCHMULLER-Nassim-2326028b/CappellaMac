@@ -20,7 +20,13 @@ jobs:
         run: swift test --arch arm64
       - name: Check four-track stereo preparation
         run: |
-          xcrun swiftc -parse-as-library Sources/CappellaMac/StereoAudioPreparation.swift scripts/check_audio_preparation.swift -o .build/check-audio
+          bin_path="$(swift build --arch arm64 --show-bin-path)"
+          core_objects=("$bin_path"/CappellaCore.build/*.o)
+          test -f "$bin_path/Modules/CappellaCore.swiftmodule"
+          test -f "${core_objects[0]}"
+          xcrun swiftc -parse-as-library -I "$bin_path/Modules" \
+            Sources/CappellaMac/StereoAudioPreparation.swift scripts/check_audio_preparation.swift \
+            "${core_objects[@]}" -o .build/check-audio
           .build/check-audio
       - name: Check timeline text input
         run: |

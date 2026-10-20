@@ -28,7 +28,14 @@ final class StereoAudioPreparation {
             let url = prepared.directory.appendingPathComponent("mono-\(index).wav")
             try decode(asset: asset, track: track, to: url); mono.append(url)
         }
-        prepared.versions = try PCMChannelPreparation.prepare(mono, in: prepared.directory)
+        // Each stereo pair keeps its own presentation duration. Padding both
+        // versions to the longest of all four tracks changes the VO duration.
+        for (version, channels) in AudioRouting.versions(total: mono.count).enumerated() {
+            let directory = prepared.directory.appendingPathComponent("version-\(version)")
+            let pair = channels.map { mono[$0] }
+            let files = try PCMChannelPreparation.prepare(pair, in: directory, routeChannels: false)
+            prepared.versions.append(contentsOf: files)
+        }
         for url in mono { try? FileManager.default.removeItem(at: url) }
         return prepared
     }

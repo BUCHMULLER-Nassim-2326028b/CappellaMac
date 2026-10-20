@@ -28,7 +28,7 @@ Modifier le support manuel dans windows/Support, jamais uniquement dans le cache
 | smoke_macos.py | macos.yml : lancement du bundle Mac, avec et sans DetX |
 | check_finder_open.swift | macos.yml : ouverture Finder à froid, à chaud et réouverture du même fichier |
 | check_timeline_text.swift | macos.yml : saisie native et clavier dans la bande |
-| check_audio_preparation.swift | macos.yml : préparation VO/VI à quatre pistes |
+| check_audio_preparation.swift | macos.yml : préparation VO/VI à quatre pistes ; lié au module et aux objets CappellaCore issus de swift test |
 | smoke-windows.ps1 | windows.yml : lancement, chargement DetX et saisie sur la bande |
 | check-windows-activation.ps1 | windows.yml : instances indépendantes et arrêt des processus |
 | make_load_fixture.py | windows.yml : création d'un DetX synthétique de 1 000 phrases |
